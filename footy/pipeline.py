@@ -72,6 +72,12 @@ def store_matches(con, source: str, recs: list[MatchRecord], backbone: bool) -> 
                             "away_goals=COALESCE(away_goals, ?), status='played' WHERE match_id=?",
                             (r.home_goals, r.away_goals, mid))
             stats["attached"] += 1
+        if r.referee:
+            con.execute("UPDATE matches SET referee=? WHERE match_id=?", (r.referee, mid))
+        for side, player, status, reason, ret in r.unavailable:
+            con.execute("INSERT OR REPLACE INTO availability VALUES(?,?,?,?,?,?,?,?,?)",
+                        (r.league, hk if side == "h" else ak, player, status, reason, ret, source, mid,
+                         db.now_iso()))
         if r.home_stats or r.away_stats:
             stats["rows"] += db.put_stats(con, mid, source, r.home_stats, r.away_stats)
         if r.odds:
@@ -124,6 +130,11 @@ def cleanup(con) -> None:
 
 
 def _skip_ids(con, source: str) -> set[str]:
+    if source == "understat":  # league data is one request; skip matches whose shot data we already have
+        return {r[0] for r in con.execute(
+            """SELECT DISTINCT sm.source_id FROM source_map sm JOIN team_match_stats t
+               ON t.match_id = sm.match_id AND t.source = 'understat' AND t.metric = 'xg_open_play'
+               WHERE sm.source = 'understat'""")}
     return {r[0] for r in con.execute("SELECT source_id FROM source_map WHERE source=? AND has_stats=1",
                                       (source,))}
 
@@ -178,11 +189,47 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
                     try:
                         fx = src.fixtures(lg) if sname != "understat" else []
                         if fx:
+                            con.execute("DELETE FROM availability WHERE league=? AND source=?", (key, sname))
                             store_matches(con, sname, fx, backbone=False)
-                    except Exception:
-                        pass
+                            n_out = sum(len(r.unavailable) for r in fx)
+                            if n_out:
+                                echo(f"  [{key}] {sname}: team news - {n_out} players out/doubtful")
+                    except Exception as e:
+                        echo(f"  [{key}] {sname}: fixtures/team news FAILED {e}")
             con.commit()
         cleanup(con)
+    try:
+        update_elo(echo=echo)
+    except Exception as e:
+        echo(f"  ClubElo: FAILED {e}")
+
+
+def update_elo(echo=print, date: dt.date | None = None) -> None:
+    from .sources import clubelo
+    df = clubelo.fetch(date)
+    date_s = (date or dt.date.today()).isoformat()
+    cfg = config.leagues()
+    with db.session() as con:
+        matched = 0
+        rows = []
+        for key, lg in cfg.items():
+            code = clubelo.COUNTRY.get(lg.country)
+            season = config.current_season()
+            known = _known_teams(con, key, season)
+            if not code or not known:
+                continue
+            cand = df[(df.country == code) & (df.level == lg.tier)]
+            for _, r in cand.iterrows():
+                team = best_match(r.club, known)
+                rows.append((date_s, r.club, r.country, int(r.level), float(r.elo), key if team else None, team))
+                matched += bool(team)
+        con.execute("DELETE FROM elo WHERE date=?", (date_s,))
+        con.executemany("INSERT OR REPLACE INTO elo VALUES(?,?,?,?,?,?,?)", rows)
+    echo(f"  ClubElo: {matched} clubs matched to league teams")
+
+
+def latest_elo(con) -> pd.DataFrame:
+    return db.read_sql(con, "SELECT * FROM elo WHERE team IS NOT NULL AND date=(SELECT MAX(date) FROM elo)")
 
 
 def update_fpl(echo=print) -> None:
@@ -208,7 +255,31 @@ def update_fpl(echo=print) -> None:
                         list(f.values()))
         con.execute("DELETE FROM fpl_events")
         con.executemany("INSERT INTO fpl_events VALUES(?,?,?,?,?,?)", events)
-    echo(f"  FPL: {len(players)} players, {len(fx)} fixtures")
+        # team news from FPL flags (Premier League)
+        con.execute("DELETE FROM availability WHERE source='fpl'")
+        n_news = 0
+        for p in players:
+            chance = p["chance_next"]
+            status = None
+            if p["status"] in ("i", "s", "u", "n") and (chance is None or chance <= 25):
+                status = "out"
+            elif chance is not None and chance <= 75:
+                status = "doubt"
+            if status:
+                con.execute("INSERT OR REPLACE INTO availability VALUES(?,?,?,?,?,?,?,?,?)",
+                            ("E0", p["team"], p["web_name"], status, p["news"] or p["status"], None, "fpl",
+                             None, db.now_iso()))
+                n_news += 1
+    echo(f"  FPL: {len(players)} players, {len(fx)} fixtures, {n_news} flagged injured/doubtful")
+    # match-by-match history for anyone who has played (recent minutes beat season averages)
+    ids = [p["id"] for p in players if (p["minutes"] or 0) > 0]
+    hist = fpl_src.fetch_history(ids)
+    with db.session() as con:
+        con.execute("DELETE FROM fpl_history")
+        for h in hist:
+            con.execute(f"INSERT OR REPLACE INTO fpl_history({','.join(h)}) VALUES({','.join('?' * len(h))})",
+                        list(h.values()))
+    echo(f"  FPL: match history for {len(ids)} players ({len(hist)} rows)")
 
 
 def coverage(con) -> pd.DataFrame:

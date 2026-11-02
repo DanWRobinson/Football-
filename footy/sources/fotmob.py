@@ -28,7 +28,7 @@ STAT_KEYS = {
     "expected_goals_non_penalty": "npxg",
     "expected_goals_on_target": "xgot",
     "expected_goals_open_play": "xg_open_play",
-    "expected_goals_set_play": "xg_set_play",
+    "expected_goals_set_play": "xg_set_piece",
     "big_chance": "big_chances",
     "big_chance_missed_title": "big_chances_missed",
     "total_shots": "shots",
@@ -99,6 +99,36 @@ def extract_match_stats(payload) -> tuple[dict, dict]:
     return home, away
 
 
+def extract_referee(payload) -> str | None:
+    for node in _walk(payload):
+        ref = node.get("Referee") or node.get("referee")
+        if isinstance(ref, dict) and ref.get("text"):
+            return str(ref["text"]).strip()
+    return None
+
+
+def extract_unavailable(payload) -> list[tuple]:
+    """Injured/suspended players listed in FotMob's line-up section: (side, name, status, reason, return)."""
+    out = []
+    for node in _walk(payload):
+        lineup = node.get("lineup")
+        if not isinstance(lineup, dict):
+            continue
+        for side, key in (("h", "homeTeam"), ("a", "awayTeam")):
+            team = lineup.get(key)
+            if not isinstance(team, dict):
+                continue
+            for p in _walk(team.get("unavailable") or []):
+                un = p.get("unavailability")
+                if isinstance(un, dict) and p.get("name"):
+                    kind = str(un.get("type") or "injury").lower()
+                    status = "doubt" if "doubt" in kind or "question" in kind else "out"
+                    out.append((side, str(p["name"]), status, kind, un.get("expectedReturn")))
+        if out:
+            break
+    return out
+
+
 def extract_league_matches(payload) -> list[dict]:
     for node in _walk(payload):
         if isinstance(node.get("allMatches"), list):
@@ -116,6 +146,14 @@ def _utc_to_date(s: str) -> tuple[str, str | None]:
         return d.date().isoformat(), d.strftime("%H:%M")
     except (ValueError, AttributeError):
         return str(s)[:10], None
+
+
+def _within_days(date: str, days: int) -> bool:
+    try:
+        d = dt.date.fromisoformat(date)
+    except ValueError:
+        return False
+    return 0 <= (d - dt.date.today()).days <= days
 
 
 class FotMob(Source):
@@ -152,7 +190,7 @@ class FotMob(Source):
                 raise
             return nd
 
-    def _records(self, lg: League, season: int, with_stats: bool) -> list[MatchRecord]:
+    def _records(self, lg: League, season: int, with_stats: bool, with_news: bool = False) -> list[MatchRecord]:
         out, fetched = [], 0
         for m in extract_league_matches(self.league_payload(lg, season)):
             status = m.get("status") or {}
@@ -171,11 +209,20 @@ class FotMob(Source):
                 rec.away_goals = int(as_) if as_ is not None else None
                 if with_stats and rec.source_id not in self.skip_ids and fetched < self.max_matches:
                     try:
-                        rec.home_stats, rec.away_stats = extract_match_stats(
-                            self.match_payload(rec.source_id, True))
+                        payload = self.match_payload(rec.source_id, True)
+                        rec.home_stats, rec.away_stats = extract_match_stats(payload)
+                        rec.referee = extract_referee(payload)
                         fetched += 1
                     except FetchError:
                         pass
+            elif with_news and _within_days(date, 8):
+                # upcoming fixture: team news (injuries/suspensions) and referee appointment
+                try:
+                    payload = self.match_payload(rec.source_id, False)
+                    rec.unavailable = extract_unavailable(payload)
+                    rec.referee = extract_referee(payload)
+                except FetchError:
+                    pass
             out.append(rec)
         return out
 
@@ -184,7 +231,8 @@ class FotMob(Source):
 
     def fixtures(self, lg):
         from ..config import current_season
-        return [r for r in self._records(lg, current_season(), with_stats=False) if r.home_goals is None]
+        return [r for r in self._records(lg, current_season(), with_stats=False, with_news=True)
+                if r.home_goals is None]
 
     def players(self, lg: League, season: int) -> list[PlayerRecord]:
         payload = self.league_payload(lg, season)

@@ -9,7 +9,7 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 from footy.demo import build  # noqa: E402
 
 PAGES = ["Data coverage", "League tables", "Team form", "Predictions & value", "Match explorer",
-         "FPL planner", "Players & props", "Backtest"]
+         "FPL planner", "Players & props", "Referees & cards", "Backtest"]
 
 
 @pytest.fixture(scope="module")

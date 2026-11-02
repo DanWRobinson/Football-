@@ -32,7 +32,7 @@ def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
     season = today.year if today.month >= 7 else today.year - 1
     con = db.connect(path)
     for t in ("matches", "team_match_stats", "odds", "players", "fpl_players", "fpl_fixtures",
-              "fpl_teams", "fpl_events", "source_map", "source_log"):
+              "fpl_teams", "fpl_events", "source_map", "source_log", "elo", "availability", "fpl_history"):
         con.execute(f"DELETE FROM {t}")
 
     for league, n, offset, real_xg in (("E0", 20, 0, True), ("E1", 24, 4, False)):
@@ -40,6 +40,13 @@ def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
         att = rng.normal(0, 0.22, n)
         dfn = rng.normal(0, 0.22, n)
         mu, ha = np.log(1.35), 0.22
+        refs = [f"Ref {LAST[k]}" for k in range(12)]
+        strict = rng.uniform(0.75, 1.3, 12)
+        from .names import canonical as _c
+        for ti, t in enumerate(teams):   # Elo snapshot consistent with true strength (+ noise)
+            con.execute("INSERT OR REPLACE INTO elo VALUES(?,?,?,?,?,?,?)",
+                        (today.isoformat(), t, "ENG", 1 if league == "E0" else 2,
+                         1700 + (att[ti] - dfn[ti]) / 0.003 + rng.normal(0, 25), league, _c(t)))
         for ssn in (season - 1, season):
             start = dt.date(ssn, 8, 9)
             pairs = [(i, j) for i in range(n) for j in range(n) if i != j]
@@ -64,7 +71,7 @@ def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
                         goals = int((rng.random(nshots) < q).sum())
                         sot = int(min(nshots, goals + rng.binomial(max(nshots - goals, 0), 0.25)))
                         d.update(shots=nshots, sot=sot, corners=int(rng.poisson(lam * 3.6)),
-                                 yellow=int(rng.poisson(1.8)), red=int(rng.random() < 0.05),
+                                 yellow=int(rng.poisson(1.8 * strict[k % 12])), red=int(rng.random() < 0.05),
                                  big_chances=int((q > 0.35).sum()), big_chances_missed=int((q > 0.35).sum() - min(goals, (q > 0.35).sum())))
                         d["_goals"] = goals
                         d["_xg"] = round(float(q.sum()), 2)
@@ -72,6 +79,7 @@ def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
                     hx, ax = hs.pop("_xg"), as_.pop("_xg")
                 mid = db.upsert_match(con, league=league, season=ssn, date=date.isoformat(), home=teams[i],
                                       away=teams[j], home_goals=hg, away_goals=ag, kickoff="15:00")
+                con.execute("UPDATE matches SET referee=? WHERE match_id=?", (refs[k % 12], mid))
                 if played:
                     db.put_stats(con, mid, "football_data", hs, as_)
                     if real_xg:
@@ -111,6 +119,11 @@ def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
                               big_chances_created=int(rng.poisson(games * share * 1.2)))
                 db_row["sot"] = int(db_row["shots"] * 0.36)
                 name = f"{FIRST[(ti + k) % 20]} {LAST[(ti * 7 + k) % 20]}"
+                if k in (10, 6) and ti % 4 == 0:   # some team news: a striker out, a midfielder doubtful
+                    con.execute("INSERT OR REPLACE INTO availability VALUES(?,?,?,?,?,?,?,?,?)",
+                                (league, canonical(t), name if league != "E0" else name.split()[1],
+                                 "out" if k == 10 else "doubt", "Hamstring" if k == 10 else "Knock",
+                                 None, "demo", None, db.now_iso()))
                 con.execute(
                     f"INSERT OR REPLACE INTO players(league, season, source, player_id, player, team, team_name, position, "
                     f"{', '.join(db_row)}, updated_at) VALUES({','.join('?' * (8 + len(db_row)))}, ?)",

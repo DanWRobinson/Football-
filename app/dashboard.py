@@ -20,7 +20,8 @@ from footy.models.data import match_frame, team_names  # noqa: E402
 from footy.models.probs import markets, score_matrix  # noqa: E402
 from footy.models.ratings import fit_all  # noqa: E402
 from footy.models.value import devig, edge, kelly  # noqa: E402
-from footy.pipeline import coverage  # noqa: E402
+from footy.models import referees  # noqa: E402
+from footy.pipeline import coverage, latest_elo  # noqa: E402
 
 st.set_page_config(page_title="Footy Edge", page_icon="⚽", layout="wide")
 
@@ -48,7 +49,7 @@ def load_frame(_v, seasons):
 def load_ratings(_v, seasons, half_life, xg_weight, ridge):
     f, _ = load_frame(_v, seasons)
     s = {"half_life_days": half_life, "xg_weight": xg_weight, "ridge": ridge}
-    return fit_all(f, sorted(f.league.unique()), settings=s)
+    return fit_all(f, sorted(f.league.unique()), settings=s, elo=latest_elo(db.connect(DB_PATH)))
 
 
 def pct(x):
@@ -78,7 +79,7 @@ with st.sidebar:
     if "demo" in DB_PATH.name:
         st.warning("DEMO DATA - fictional teams")
     page = st.radio("Page", ["Data coverage", "League tables", "Team form", "Predictions & value",
-                             "Match explorer", "FPL planner", "Players & props", "Backtest"])
+                             "Match explorer", "FPL planner", "Players & props", "Referees & cards", "Backtest"])
     avail = [k for k in LEAGUES if k in set(frame.league)] or sorted(frame.league.unique())
     with st.expander("Model settings"):
         half_life = st.slider("Time-decay half life (days)", 60, 720, config.model_settings().get("half_life_days", 240), 30)
@@ -194,7 +195,7 @@ elif page == "Team form":
 
 elif page == "Predictions & value":
     st.header("Upcoming fixtures & value")
-    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+    c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
     with c1:
         lks = league_picker(multi=True, key="lgs")
     with c2:
@@ -203,6 +204,9 @@ elif page == "Predictions & value":
         min_edge = st.number_input("Min edge", 0.0, 0.5, 0.05, 0.01)
     with c4:
         max_price = st.number_input("Max odds", 1.5, 50.0, 8.0, 0.5)
+    with c5:
+        book = st.selectbox("Price at", ["b365", "best"],
+                            format_func=lambda b: "Bet365" if b == "b365" else "Best available")
     con = db.connect(DB_PATH)
     pred = predict.predict_fixtures(con, frame, ratings, days, lks)
     if pred.empty:
@@ -211,7 +215,7 @@ elif page == "Predictions & value":
     else:
         pred["home_name"] = pred.home.map(nm)
         pred["away_name"] = pred.away.map(nm)
-        vb = predict.value_bets(pred, min_edge, max_price)
+        vb = predict.value_bets(pred, min_edge, max_price, book=book)
         st.subheader(f"Value bets ({len(vb)})")
         st.caption("Edge = model probability × best price − 1. Market probabilities are margin-removed "
                    "(Pinnacle if available, else average). Large edges usually mean the model is missing "
@@ -224,12 +228,16 @@ elif page == "Predictions & value":
         st.subheader("All fixtures")
         show = pred.assign(league=pred.league.map(lg_name), match=pred.home_name + " v " + pred.away_name)
         cols = ["date", "kickoff", "league", "match", "xg_home", "xg_away", "H", "D", "A", "mkt_H", "mkt_D",
-                "mkt_A", "O2.5", "mkt_O2.5", "BTTS", "H_CS", "A_CS"]
-        show = show[[c for c in cols if c in show]]
+                "mkt_A", "b365_H", "b365_D", "b365_A", "O2.5", "mkt_O2.5", "BTTS", "H_CS", "A_CS", "exp_cards",
+                "referee", "news_home", "news_away"]
+        show = show[[c for c in cols if c in show]].dropna(axis=1, how="all")
         fmt = {c: "{:.0%}" for c in show.columns if c in ("H", "D", "A", "mkt_H", "mkt_D", "mkt_A", "O2.5",
                                                          "mkt_O2.5", "BTTS", "H_CS", "A_CS")}
-        fmt.update({"xg_home": "{:.2f}", "xg_away": "{:.2f}"})
+        fmt.update({c: "{:.2f}" for c in ("xg_home", "xg_away", "b365_H", "b365_D", "b365_A") if c in show})
+        fmt.update({"exp_cards": "{:.1f}"} if "exp_cards" in show else {})
         st.dataframe(show.style.format(fmt, na_rep=""), hide_index=True, use_container_width=True)
+        st.caption("Expected goals already include team-news adjustments (injuries/suspensions from FPL and "
+                   "FotMob). news_* columns show who's out and the effect.")
 
 elif page == "Match explorer":
     st.header("Match explorer")
@@ -365,6 +373,29 @@ elif page == "Players & props":
                 st.dataframe(pr.style.format(fmt, na_rep=""), hide_index=True, use_container_width=True, height=600)
                 st.caption("Anytime scorer = 1 − e^(−expected xG), with player xG/90 scaled by the fixture's "
                            "expected team goals and typical minutes. Compare `fair_anytime` with the bookmaker price.")
+
+elif page == "Referees & cards":
+    st.header("Referees & cards")
+    c1, c2 = st.columns(2)
+    with c1:
+        lk = league_picker()
+    with c2:
+        ssn = season_picker()
+    f = frame[(frame.league == lk) & (frame.season >= int(ssn) - 1)]
+    rt = referees.referee_table(f)
+    if rt.empty:
+        st.info("No referee data for this league. football-data records referees for the Premier League; "
+                "FotMob adds them for other leagues once its match details are fetched.")
+    else:
+        st.caption("Strictness = cards per game vs league average, shrunk toward 1.00 for referees with few games.")
+        st.dataframe(rt[rt.league == lk].drop(columns="league").round(2), hide_index=True,
+                     use_container_width=True)
+    tc = referees.team_card_rates(frame[(frame.league == lk) & (frame.season == int(ssn))])
+    if not tc.empty:
+        tc["team"] = tc.team.map(nm)
+        st.subheader("Team card rates (this season)")
+        st.dataframe(tc.drop(columns="league").sort_values("cards_for", ascending=False).round(2),
+                     hide_index=True, use_container_width=True)
 
 elif page == "Backtest":
     st.header("Backtest")

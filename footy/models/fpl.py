@@ -44,6 +44,28 @@ def team_games_played(fixtures: pd.DataFrame) -> dict[str, int]:
     return pd.concat([f.team_h, f.team_a]).value_counts().to_dict()
 
 
+def recent_starts(con, fixtures: pd.DataFrame, last_n: int = 6) -> pd.DataFrame:
+    """Share of each player's team's last N finished fixtures that he started."""
+    try:
+        h = db.read_sql(con, "SELECT * FROM fpl_history")
+    except Exception:
+        return pd.DataFrame()
+    if h.empty:
+        return pd.DataFrame(columns=["recent_start_rate"])
+    done = fixtures[fixtures.finished == 1].sort_values("kickoff")
+    team_last = {}
+    for t in pd.concat([done.team_h_id, done.team_a_id]).unique():
+        f = done[(done.team_h_id == t) | (done.team_a_id == t)].tail(last_n)
+        team_last[t] = set(f.id)
+    players = db.read_sql(con, "SELECT id, team_id FROM fpl_players").set_index("id").team_id
+    h = h[h.player_id.isin(players.index)]
+    h["team_id"] = h.player_id.map(players)
+    h = h[[fx in team_last.get(t, set()) for fx, t in zip(h.fixture, h.team_id)]]
+    out = h.groupby("player_id").starts.sum().to_frame("starts_recent")
+    out["recent_start_rate"] = out.starts_recent / [max(len(team_last.get(players[i], ())), 1) for i in out.index]
+    return out.clip(upper=1.0)
+
+
 def expected_points(con, ratings: Ratings, horizon: int = 5, start_gw: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     players, fixtures, events, teams = load(con)
     if players.empty:
@@ -52,6 +74,7 @@ def expected_points(con, ratings: Ratings, horizon: int = 5, start_gw: int | Non
     gws = list(range(gw0, gw0 + horizon))
     up = fixtures[(fixtures.event.isin(gws)) & (fixtures.finished == 0)]
     gp = team_games_played(fixtures)
+    recent = recent_starts(con, fixtures)
 
     # average expected goals for each team vs league-average opposition (for scaling FPL xG)
     avg_for = {t: np.exp(ratings.mu + ratings.att.get(t, -0.15) + ratings.home_adv / 2) for t in ratings.teams}
@@ -71,6 +94,9 @@ def expected_points(con, ratings: Ratings, horizon: int = 5, start_gw: int | Non
         starts = p.starts or 0.0
         played = gp.get(p.team, 0) or 1
         start_rate = min(starts / played, 1.0) if played else 0.0
+        if p.id in recent.index:  # recent role matters more than the season average
+            rr = recent.loc[p.id]
+            start_rate = 0.65 * rr.recent_start_rate + 0.35 * start_rate
         chance = p.chance_next / 100 if pd.notna(p.chance_next) else None
         if p.status in ("i", "s", "u", "n"):   # injured / suspended / unavailable / not in squad
             avail = chance if chance is not None else 0.0

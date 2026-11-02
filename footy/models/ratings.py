@@ -96,9 +96,18 @@ def _target(df: pd.DataFrame, side: str, s: dict) -> np.ndarray:
     return y
 
 
+def elo_priors(elo: dict[str, float], teams: list[str], scale: float) -> dict[str, float]:
+    """Elo -> overall log-strength relative to the league's average team."""
+    have = {t: elo[t] for t in teams if t in elo}
+    if len(have) < max(4, len(teams) // 2):  # too few matched clubs to anchor the league
+        return {}
+    mean = float(np.mean(list(have.values())))
+    return {t: (v - mean) * scale for t, v in have.items()}
+
+
 def fit(frame: pd.DataFrame, league: str, as_of: dt.date | pd.Timestamp | None = None,
         settings: dict | None = None, history: pd.DataFrame | None = None,
-        teams_now: list[str] | None = None) -> Ratings:
+        teams_now: list[str] | None = None, elo: dict[str, float] | None = None) -> Ratings:
     """Fit ratings for `league` using played matches strictly before `as_of`."""
     s = {**config.model_settings(), **(settings or {})}
     as_of = pd.Timestamp(as_of or dt.date.today() + dt.timedelta(days=1))
@@ -122,6 +131,10 @@ def fit(frame: pd.DataFrame, league: str, as_of: dt.date | pd.Timestamp | None =
             pa[idx[t]], pd_[idx[t]] = s.get("promoted_prior", -0.2), -s.get("promoted_prior", -0.2)
         elif k == "relegated":
             pa[idx[t]], pd_[idx[t]] = s.get("relegated_prior", 0.2), -s.get("relegated_prior", 0.2)
+    if elo:
+        for t, strength in elo_priors(elo, teams_now or teams, s.get("elo_scale", 0.003)).items():
+            pa[idx[t]], pd_[idx[t]] = strength / 2, -strength / 2
+            prior_kind[t] = (prior_kind.get(t) or "") + (" " if prior_kind.get(t) else "") + "elo"
     ridge = s.get("ridge", 2.0)
 
     def nll(theta):
@@ -174,7 +187,9 @@ def fit_rho(df: pd.DataFrame, r: Ratings, w: np.ndarray) -> float:
     return float(res.x) if res.success else -0.05
 
 
-def fit_all(frame: pd.DataFrame, leagues: list[str], as_of=None, settings=None) -> dict[str, Ratings]:
+def fit_all(frame: pd.DataFrame, leagues: list[str], as_of=None, settings=None,
+            elo: pd.DataFrame | None = None) -> dict[str, Ratings]:
+    """elo: DataFrame[league, team, elo] (latest ClubElo snapshot) used as rating priors."""
     history = pd.concat([frame[["league", "season", "home"]].rename(columns={"home": "team"}),
                          frame[["league", "season", "away"]].rename(columns={"away": "team"})]).drop_duplicates()
     out = {}
@@ -183,7 +198,10 @@ def fit_all(frame: pd.DataFrame, leagues: list[str], as_of=None, settings=None) 
         cur = frame[(frame.league == lg) & (frame.season == season)]
         teams_now = sorted(set(cur.home) | set(cur.away))
         try:
-            out[lg] = fit(frame, lg, as_of, settings, history, teams_now)
+            e = None
+            if elo is not None and not elo.empty:
+                e = dict(zip(elo[elo.league == lg].team, elo[elo.league == lg].elo))
+            out[lg] = fit(frame, lg, as_of, settings, history, teams_now, e)
         except ValueError:
             continue
     return out

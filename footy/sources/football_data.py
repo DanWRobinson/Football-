@@ -92,6 +92,7 @@ def parse_csv(text: str, lg: League, season: int | None, division: str | None = 
             away_goals=int(r["FTAG"]) if played else None,
             kickoff=str(r["Time"]) if "Time" in r and pd.notna(r.get("Time")) else None,
             home_stats=hs, away_stats=as_, odds=_odds_from_row(r),
+            referee=str(r["Referee"]).strip() if "Referee" in r and pd.notna(r.get("Referee")) else None,
         ))
     return out
 

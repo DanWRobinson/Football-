@@ -117,4 +117,6 @@ model:
   ridge: 2.0                 # shrinkage toward priors (bigger = more conservative early season)
   promoted_prior: -0.20      # starting rating for promoted teams (log scale)
   relegated_prior: 0.20      # starting rating for relegated teams
+  elo_scale: 0.003           # ClubElo points -> log goal strength when Elo priors are available
+  news_attack_weight: 0.6    # share of a missing player's xG+xA the team actually loses (rest replaced)
   max_goals: 10

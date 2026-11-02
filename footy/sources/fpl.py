@@ -58,3 +58,23 @@ def parse(boot: dict, fixtures: list):
     events = [(ev["id"], ev["name"], ev.get("deadline_time"), int(bool(ev.get("finished"))),
                int(bool(ev.get("is_current"))), int(bool(ev.get("is_next")))) for ev in boot["events"]]
     return team_rows, players, fx, events
+
+
+def fetch_history(player_ids: list[int]) -> list[dict]:
+    """Match-by-match rows for each player (one request per player; cached 12h)."""
+    rows = []
+    for pid in player_ids:
+        try:
+            data = get(f"{BASE}/element-summary/{pid}/", as_json=True, ttl=12 * 3600)
+        except Exception:
+            continue
+        for h in data.get("history", []):
+            rows.append(dict(
+                player_id=pid, gw=h.get("round"), fixture=h.get("fixture"), opponent_id=h.get("opponent_team"),
+                was_home=int(bool(h.get("was_home"))), kickoff=h.get("kickoff_time"),
+                minutes=_f(h.get("minutes")), starts=_f(h.get("starts")), total_points=_f(h.get("total_points")),
+                goals=_f(h.get("goals_scored")), assists=_f(h.get("assists")), xg=_f(h.get("expected_goals")),
+                xa=_f(h.get("expected_assists")), bonus=_f(h.get("bonus")),
+                defensive_contribution=_f(h.get("defensive_contribution")), saves=_f(h.get("saves")),
+            ))
+    return rows

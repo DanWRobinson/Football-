@@ -23,6 +23,7 @@ jobs:
       FOTMOB_XMAS: ${{ secrets.FOTMOB_XMAS }}
       # spread the slow per-match FotMob fetches over several days; finished matches stay cached
       FOTMOB_MAX_MATCHES: "80"
+      UNDERSTAT_MAX_MATCHES: "100"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

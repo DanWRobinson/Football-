@@ -93,8 +93,52 @@ def parse_league(data: dict, lg: League, season: int) -> tuple[list[MatchRecord]
     return matches, players
 
 
+SET_PIECE = {"FromCorner", "SetPiece", "DirectFreekick"}
+
+
+def load_shots(match_id: str) -> dict:
+    try:
+        data = get(f"{BASE}/getMatchData/{match_id}", as_json=True, ttl=-1,
+                   headers={"X-Requested-With": "XMLHttpRequest", "Referer": f"{BASE}/match/{match_id}"})
+        if isinstance(data, dict) and data.get("shots"):
+            return data["shots"]
+    except (FetchError, ValueError):
+        pass
+    html = get(f"{BASE}/match/{match_id}", ttl=-1)
+    shots = _embedded(html, "shotsData")
+    if not shots:
+        raise FetchError(f"Understat: no shots for match {match_id}")
+    return shots
+
+
+def shot_metrics(shots: dict) -> tuple[dict, dict]:
+    """Split each side's xG into open play / set piece / penalty, plus box-entry quality."""
+    out = []
+    for side in ("h", "a"):
+        xs = shots.get(side) or []
+        d = {"xg_open_play": 0.0, "xg_set_piece": 0.0, "xg_penalty": 0.0, "shots_xg30": 0.0}
+        for s in xs:
+            xg = float(s.get("xG") or 0)
+            sit = s.get("situation")
+            if sit == "Penalty":
+                d["xg_penalty"] += xg
+            elif sit in SET_PIECE:
+                d["xg_set_piece"] += xg
+            else:
+                d["xg_open_play"] += xg
+            if xg >= 0.3:
+                d["shots_xg30"] += 1
+        out.append({k: round(v, 3) for k, v in d.items()})
+    return out[0], out[1]
+
+
 class Understat(Source):
     name = "understat"
+
+    def __init__(self):
+        import os
+        self.skip_ids: set[str] = set()   # matches that already have shot data
+        self.max_shot_matches = int(os.environ.get("UNDERSTAT_MAX_MATCHES", "150"))
 
     def supports(self, lg: League) -> bool:
         return bool(lg.understat)
@@ -103,7 +147,21 @@ class Understat(Source):
         return parse_league(load_league(lg.understat, season), lg, season)
 
     def matches(self, lg, season):
-        return self._load(lg, season)[0]
+        recs = self._load(lg, season)[0]
+        fetched = 0
+        for r in recs:
+            if r.home_goals is None or not r.source_id or r.source_id in self.skip_ids:
+                continue
+            if fetched >= self.max_shot_matches:
+                break
+            try:
+                h, a = shot_metrics(load_shots(r.source_id))
+                r.home_stats.update(h)
+                r.away_stats.update(a)
+                fetched += 1
+            except FetchError:
+                continue
+        return recs
 
     def players(self, lg, season):
         return self._load(lg, season)[1]

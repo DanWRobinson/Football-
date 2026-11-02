@@ -30,8 +30,25 @@ Add or remove leagues in `config/leagues.yaml`.
 | [football-data.co.uk](https://www.football-data.co.uk) | free | results, shots, SoT, corners, cards, **odds** (Pinnacle, average, max, Bet365, incl. closing) | all 13, down to the National League |
 | [Understat](https://understat.com) | free | match xG, npxG, PPDA, deep completions; player xG, xA, npxG, xGChain, key passes | Big 5 |
 | [FotMob](https://www.fotmob.com) | free | match xG, xGOT, **big chances**, big chances missed, touches in box; player big chances created | all, incl. EFL and next tier |
-| [FPL API](https://fantasy.premierleague.com) | free | prices, ownership, FPL xG/xA, minutes, defensive contributions, fixtures | Premier League |
+| [FPL API](https://fantasy.premierleague.com) | free | prices, ownership, FPL xG/xA, defensive contributions, fixtures, **injury flags**, match-by-match minutes per player | Premier League |
+| [ClubElo](http://clubelo.com) | free | Elo rating for every club: used as each team's starting rating, so early-season and promoted-team ratings are sensible | top flights + most second tiers |
 | [API-Football](https://www.api-football.com) | paid (free tier: 100 req/day) | match xG, shots, possession | all 13 |
+
+Extra free data from the same sources:
+
+- **Understat shot data:** xG split into open play, set pieces and penalties, plus chances of 0.3 xG or more.
+- **FotMob team news and referees:** injured and suspended players and the referee appointment for fixtures in the next 8 days, plus referees for past matches.
+- **football-data.co.uk referees:** recorded for English matches.
+
+**Bet365** has no public API, and its terms ban scraping. Instead, its prices come from
+football-data.co.uk, which records them for every league, both pre-match and closing. Value bets
+are priced at Bet365 by default; use `--book best` or the dashboard toggle to see the best price
+across all bookmakers.
+
+**Team news.** For each team, the expected goals are reduced by the share of the team's xG + xA
+that its missing players produce. It loses 60% of that share by default; the rest is assumed to be
+covered by whoever replaces them. Doubtful players count half. Missing regular defenders and
+goalkeepers slightly raise the expected goals conceded.
 
 **How the merge works.** football-data.co.uk is the backbone: one row per match, with odds. The
 other sources attach their stats to those rows. Team names are reconciled automatically ("Nott'm
@@ -104,7 +121,9 @@ builds a database of *fictional* teams, so you can explore the dashboard offline
 ```bash
 python -m footy status                     # coverage: matches, % with xG / big chances / odds per league
 python -m footy ratings -l E0              # attack/defence ratings table
-python -m footy predict -l all --days 7 --min-edge 0.05
+python -m footy predict -l all --days 7 --min-edge 0.05            # value at Bet365 prices
+python -m footy predict -l E0 --book best                           # ...or best price anywhere
+python -m footy elo                        # refresh ClubElo only
 python -m footy backtest -l E0,E1,E2 --season 2025
 python -m footy report                     # static HTML page -> site/index.html
 ```

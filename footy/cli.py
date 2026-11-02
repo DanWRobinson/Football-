@@ -33,12 +33,18 @@ def cmd_update(args):
             pipeline.update_fpl()
         except Exception as e:
             print(f"  FPL: FAILED {e}")
+
     cmd_status(args)
 
 
 def cmd_fpl(args):
     from . import pipeline
     pipeline.update_fpl()
+
+
+def cmd_elo(args):
+    from . import pipeline
+    pipeline.update_elo()
 
 
 def cmd_status(args):
@@ -78,6 +84,12 @@ def cmd_doctor(args):
         except Exception as e:
             print(f"{sname:14s} {lk:4s} FAIL {e}")
     try:
+        from .sources import clubelo
+        e = clubelo.fetch()
+        print(f"{'clubelo':14s} all  OK  {len(e)} clubs")
+    except Exception as ex:
+        print(f"{'clubelo':14s} all  FAIL {ex}")
+    try:
         boot, fx = fpl.fetch()
         print(f"{'fpl':14s} E0   OK  {len(boot['elements'])} players, {len(fx)} fixtures")
     except Exception as e:
@@ -90,7 +102,8 @@ def _load(args, leagues=None):
     con = db.connect(args.db)
     cur = config.current_season()
     frame = match_frame(con, leagues, [cur - 2, cur - 1, cur])
-    return con, frame, fit_all(frame, leagues or sorted(frame.league.unique()))
+    from .pipeline import latest_elo
+    return con, frame, fit_all(frame, leagues or sorted(frame.league.unique()), elo=latest_elo(con))
 
 
 def cmd_ratings(args):
@@ -126,10 +139,10 @@ def cmd_predict(args):
     pred["home"], pred["away"] = pred.home_name, pred.away_name
     pred["date"] = pred.date.dt.strftime("%a %d %b")
     cols = ["date", "league", "home", "away", "xg_home", "xg_away", "H", "D", "A", "O2.5", "BTTS",
-            "mkt_H", "mkt_D", "mkt_A"]
+            "mkt_H", "mkt_D", "mkt_A", "exp_cards"]
     with pd.option_context("display.width", 220, "display.max_columns", 30):
         print(pred[[c for c in cols if c in pred]].round(2).to_string(index=False))
-        vb = value_bets(pred, args.min_edge)
+        vb = value_bets(pred, args.min_edge, book=args.book)
         print(f"\nValue (edge >= {args.min_edge:.0%}):")
         if not vb.empty:
             vb["date"] = pd.to_datetime(vb.date).dt.strftime("%a %d %b")
@@ -188,6 +201,7 @@ def main(argv=None):
     p.set_defaults(func=cmd_update)
 
     sub.add_parser("fpl", help="refresh FPL data only").set_defaults(func=cmd_fpl)
+    sub.add_parser("elo", help="refresh ClubElo ratings only").set_defaults(func=cmd_elo)
     sub.add_parser("status", help="data coverage per league").set_defaults(func=cmd_status)
     sub.add_parser("doctor", help="test which sources work from your network").set_defaults(func=cmd_doctor)
 
@@ -199,6 +213,8 @@ def main(argv=None):
     leagues_arg(p)
     p.add_argument("--days", type=int, default=7)
     p.add_argument("--min-edge", type=float, default=0.05)
+    p.add_argument("--book", default="b365", choices=["b365", "best"],
+                   help="price value bets at Bet365 (default) or best available")
     p.set_defaults(func=cmd_predict)
 
     p = sub.add_parser("backtest", help="walk-forward backtest vs closing odds")

@@ -16,7 +16,8 @@ from . import config, db
 from .models import form, fpl, predict, props
 from .models.data import match_frame, team_names
 from .models.ratings import fit_all
-from .pipeline import coverage
+from .models import referees
+from .pipeline import coverage, latest_elo
 
 CSS = """
 :root{--bg:#f7f7f5;--card:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e4e4e0;--accent:#0b6e4f;
@@ -100,7 +101,7 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
     lgs = config.leagues()
     ln = lambda k: lgs[k].name if k in lgs else k  # noqa: E731
     order = [k for k in lgs if k in set(frame.league)] if not frame.empty else []
-    ratings = fit_all(frame, order) if order else {}
+    ratings = fit_all(frame, order, elo=latest_elo(con)) if order else {}
     sections: dict[str, str] = {}
 
     # --- value + fixtures
@@ -109,18 +110,22 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
         pred["home_name"], pred["away_name"] = pred.home.map(nm), pred.away.map(nm)
         pred["match"] = pred.home_name + " v " + pred.away_name
         pred["day"] = pred.date.dt.strftime("%a %d %b")
-    vb = predict.value_bets(pred, min_edge).head(40) if not pred.empty else pd.DataFrame()
-    if not vb.empty:
-        vb["league"] = vb.league.map(ln)
-        vb["day"] = pd.to_datetime(vb.date).dt.strftime("%a %d %b")
+    vb_spec = [("day", "Date", "text"), ("league", "League", "text"), ("match", "Match", "text"),
+               ("market", "Market", "text"), ("selection", "Pick", "text"), ("model_p", "Model", "pct"),
+               ("market_p", "Market", "pct"), ("fair_odds", "Fair", "f2"), ("price", "Price", "f2"),
+               ("edge", "Edge", "signed_pct"), ("stake_pct", "Stake", "pct1"), ("team_news", "Team news", "text")]
+    parts = []
+    for book, label in (("b365", "At Bet365 prices"), ("best", "At best available price (any bookmaker)")):
+        vb = predict.value_bets(pred, min_edge, book=book).head(40) if not pred.empty else pd.DataFrame()
+        if not vb.empty:
+            vb["league"] = vb.league.map(ln)
+            vb["day"] = pd.to_datetime(vb.date).dt.strftime("%a %d %b")
+        parts.append(f"<h2>{label}</h2>" + table(vb, vb_spec))
     sections["Value"] = (
-        f'<p class="note">Selections where model probability × best available price beats 1 + {min_edge:.0%}. '
-        "Check team news first, and check the league's backtest record - big edges often mean the model is "
-        "missing something.</p>" +
-        table(vb, [("day", "Date", "text"), ("league", "League", "text"), ("match", "Match", "text"),
-                   ("market", "Market", "text"), ("selection", "Pick", "text"), ("model_p", "Model", "pct"),
-                   ("market_p", "Market", "pct"), ("fair_odds", "Fair", "f2"), ("price", "Best price", "f2"),
-                   ("edge", "Edge", "signed_pct"), ("stake_pct", "Stake", "pct1")]))
+        f'<p class="note">Selections where model probability × price beats 1 + {min_edge:.0%}. Expected goals '
+        "already allow for listed injuries/suspensions. Bet365 prices are football-data's snapshot (usually "
+        "a day or two before kick-off) - check the live price before betting, and check the league's "
+        "backtest record: big edges often mean the model is missing something.</p>" + "".join(parts))
 
     fx_html = []
     for k in order:
@@ -132,10 +137,21 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                 ("xg_away", "xG A", "f2"), ("H", "Home", "pct"), ("D", "Draw", "pct"), ("A", "Away", "pct"),
                 ("mkt_H", "Mkt H", "pct"), ("mkt_D", "Mkt D", "pct"), ("mkt_A", "Mkt A", "pct"),
                 ("O2.5", "O2.5", "pct"), ("BTTS", "BTTS", "pct"), ("H_CS", "H CS", "pct"),
-                ("A_CS", "A CS", "pct")]) + "</details>")
+                ("A_CS", "A CS", "pct"), ("exp_cards", "Cards", "f1"), ("referee", "Referee", "text"),
+                ("news_home", "Home news", "text"), ("news_away", "Away news", "text")]) + "</details>")
     sections["Fixtures"] = ('<p class="note">Model probabilities for the next week; "Mkt" = bookmaker odds '
                             "with the margin removed.</p>" + ("".join(fx_html) or '<p class="note">No fixtures '
                                                               "with odds published yet.</p>"))
+
+    # --- cards
+    if not pred.empty and "exp_cards" in pred:
+        c = pred.sort_values("exp_cards", ascending=False).head(30).copy()
+        c["league"] = c.league.map(ln)
+        sections["Cards"] = ('<p class="note">Expected cards from both teams\' card rates and the referee\'s '
+                             "strictness (1.00 = league average). Over-lines use a negative binomial.</p>" + table(
+            c, [("day", "Date", "text"), ("league", "League", "text"), ("match", "Match", "text"),
+                ("referee", "Referee", "text"), ("ref_strictness", "Ref x", "f2"), ("exp_cards", "Exp cards", "f1"),
+                ("cards_O3.5", "O3.5", "pct"), ("cards_O4.5", "O4.5", "pct"), ("cards_O5.5", "O5.5", "pct")]))
 
     # --- tables
     tb_html, reg_rows = [], []

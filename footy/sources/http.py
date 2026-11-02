@@ -18,6 +18,8 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 _last_hit: dict[str, float] = {}
 MIN_INTERVAL = float(os.environ.get("FOOTY_MIN_INTERVAL", "1.5"))  # seconds between hits per host
+# hosts that comfortably handle faster polling (the FPL API serves millions of managers)
+HOST_INTERVAL = {"fantasy.premierleague.com": 0.25, "api.clubelo.com": 0.5}
 
 
 class FetchError(RuntimeError):
@@ -45,7 +47,7 @@ def get(url: str, *, params: dict | None = None, headers: dict | None = None,
     hdrs.update(headers or {})
     err: Exception | None = None
     for attempt in range(retries):
-        wait = MIN_INTERVAL - (time.time() - _last_hit.get(host, 0))
+        wait = HOST_INTERVAL.get(host, MIN_INTERVAL) - (time.time() - _last_hit.get(host, 0))
         if wait > 0:
             time.sleep(wait)
         _last_hit[host] = time.time()

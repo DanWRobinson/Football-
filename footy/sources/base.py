@@ -26,6 +26,9 @@ class MatchRecord:
     away_stats: dict = field(default_factory=dict)
     odds: list[tuple] = field(default_factory=list)  # (market, selection, book, price, line)
     source_id: str | None = None
+    referee: str | None = None
+    #: missing players: (side 'h'/'a', player name, status 'out'/'doubt', reason, expected return)
+    unavailable: list[tuple] = field(default_factory=list)
 
 
 @dataclass

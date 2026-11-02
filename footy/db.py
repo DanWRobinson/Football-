@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS matches (
     home_goals INTEGER,
     away_goals INTEGER,
     status     TEXT NOT NULL DEFAULT 'fixture',   -- 'played' | 'fixture'
-    updated_at TEXT
+    updated_at TEXT,
+    referee    TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_matches_league ON matches(league, season, date);
 
@@ -102,6 +103,25 @@ CREATE TABLE IF NOT EXISTS fpl_events (
     is_current INTEGER, is_next INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS elo (
+    date TEXT, club TEXT, country TEXT, level INTEGER, elo REAL,
+    league TEXT, team TEXT,                 -- matched league/canonical team (NULL if unmatched)
+    PRIMARY KEY (date, club, country, level)
+);
+
+CREATE TABLE IF NOT EXISTS fpl_history (
+    player_id INTEGER, gw INTEGER, fixture INTEGER, opponent_id INTEGER, was_home INTEGER, kickoff TEXT,
+    minutes REAL, starts REAL, total_points REAL, goals REAL, assists REAL, xg REAL, xa REAL,
+    bonus REAL, defensive_contribution REAL, saves REAL,
+    PRIMARY KEY (player_id, fixture)
+);
+
+CREATE TABLE IF NOT EXISTS availability (
+    league TEXT, team TEXT, player TEXT, status TEXT,   -- status: out | doubt
+    reason TEXT, expected_return TEXT, source TEXT, match_id TEXT, updated_at TEXT,
+    PRIMARY KEY (league, team, player, source)
+);
+
 CREATE TABLE IF NOT EXISTS source_map (
     source TEXT, source_id TEXT, match_id TEXT, has_stats INTEGER,
     PRIMARY KEY (source, source_id)
@@ -118,12 +138,19 @@ def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
+MIGRATIONS = [("matches", "referee", "TEXT")]
+
+
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
     path = Path(path or config.DB_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    for table, col, typ in MIGRATIONS:  # databases created by older versions
+        cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
     return con
 
 
