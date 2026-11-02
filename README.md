@@ -48,6 +48,30 @@ To add a new provider, write a class in `footy/sources/` with `matches()`, `fixt
 `players()` returning `MatchRecord`/`PlayerRecord`. Register it in `footy/sources/__init__.py` and
 list it in a league's `xg_sources`.
 
+## On an iPad or phone
+
+There are two ways, and neither needs anything installed.
+
+**1. Daily web page (bookmark it).** A GitHub Action refreshes every league each morning and
+publishes one page with tabs for value bets, fixtures, xG tables, regression candidates, FPL picks,
+players and data coverage. One-time setup:
+
+1. On GitHub, open the repo's **Settings → Pages** and set **Source** to **GitHub Actions**.
+2. Open the **Actions** tab, choose **Daily report**, then **Run workflow** to build it now.
+3. When it finishes (the first run can take about an hour), the page is at
+   `https://<your-username>.github.io/Football-/`. In Safari, use Share → **Add to Home Screen**.
+
+Optional: add `API_FOOTBALL_KEY` or `FOTMOB_XMAS` under **Settings → Secrets and variables →
+Actions**. The page also publishes the database itself (`/download/footy.db`) so the Codespace can
+reuse it. Each run fetches a capped number of new FotMob matches, so xG and big-chance coverage
+fills in over the first few days.
+
+**2. Full interactive dashboard (Codespaces).** On the repo page, tap **Code → Codespaces →
+Create codespace**. It installs everything, grabs the latest database from the daily page (or
+fetches the Premier League if there isn't one yet) and opens the dashboard by itself. If it
+doesn't, open the **Ports** tab and tap the globe icon next to 8501. Stop the codespace when you're
+done (github.com/codespaces), because free hours are limited.
+
 ## Quick start
 
 ```bash
@@ -82,6 +106,7 @@ python -m footy status                     # coverage: matches, % with xG / big 
 python -m footy ratings -l E0              # attack/defence ratings table
 python -m footy predict -l all --days 7 --min-edge 0.05
 python -m footy backtest -l E0,E1,E2 --season 2025
+python -m footy report                     # static HTML page -> site/index.html
 ```
 
 ### Optional keys (`.env`)
@@ -150,5 +175,7 @@ footy/sources/           one adapter per provider (football_data, understat, fot
 footy/pipeline.py        fetch -> reconcile names/dates -> SQLite (data/footy.db)
 footy/models/            data prep, ratings, probabilities, value, backtest, form, FPL, props
 app/dashboard.py         Streamlit UI
+footy/report.py          static phone/iPad page (published daily by .github/workflows/daily-report.yml)
+.devcontainer/           one-tap GitHub Codespaces setup
 tests/                   parser tests on sample payloads, model recovery tests, dashboard smoke tests
 ```

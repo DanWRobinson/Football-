@@ -157,6 +157,11 @@ def cmd_demo(args):
           f"  FOOTY_DB={path} python -m footy dashboard")
 
 
+def cmd_report(args):
+    from .report import build
+    print(f"Report written to {build(args.out, args.days, args.min_edge)}")
+
+
 def cmd_dashboard(args):
     env = dict(os.environ)
     if args.db:
@@ -205,6 +210,12 @@ def main(argv=None):
     p = sub.add_parser("demo", help="build a demo database with fictional teams")
     p.add_argument("--out", default=str(config.DATA_DIR / "demo.db"))
     p.set_defaults(func=cmd_demo)
+
+    p = sub.add_parser("report", help="build the static HTML report (for phone/iPad)")
+    p.add_argument("--out", default="site/index.html")
+    p.add_argument("--days", type=int, default=7)
+    p.add_argument("--min-edge", type=float, default=0.05)
+    p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("dashboard", help="launch the Streamlit dashboard")
     p.add_argument("extra", nargs="*")

@@ -113,3 +113,15 @@ def test_tables_predictions_fpl_props(demo):
 
     bt, summ = backtest.run(con, frame, "E0", 2025)
     assert summ["matches"] > 200 and 0.8 < summ["model_logloss"] < 1.2
+
+
+def test_static_report(tmp_path, monkeypatch):
+    from footy import config, report
+    path = tmp_path / "demo.db"
+    build(str(path), today=dt.date.today())
+    monkeypatch.setattr(config, "DB_PATH", path)
+    out = report.build(tmp_path / "site" / "index.html")
+    page = out.read_text()
+    for tab in ("Value", "Fixtures", "Tables", "Regression", "FPL", "Players", "Data"):
+        assert f">{tab}</button>" in page
+    assert "Premier League" in page and "<table>" in page
