@@ -95,7 +95,10 @@ def _groups(events: list[SaleEvent]) -> list[tuple[SaleEvent, str]]:
         by.setdefault((e.stage, e.action, e.when), []).append(e)
     out = []
     for evs in by.values():
-        evs.sort(key=lambda e: (e.min_credits is None, e.fixture is None))
+        # most specific first: open to everyone, then the highest credit level (the earliest-priority
+        # card you still qualify for, since _wanted already dropped the ones you don't)
+        evs.sort(key=lambda e: (e.audience is not None, e.min_credits is None, -(e.min_credits or 0),
+                                e.fixture is None))
         names = list(dict.fromkeys(e.fixture for e in evs if e.fixture))
         who = names[0] + (f" + {len(names) - 1} more" if len(names) > 1 else "") if names else "All Red sale"
         out.append((evs[0], who))
@@ -107,6 +110,8 @@ def _wanted(e: SaleEvent, cfg: dict, bal: dict) -> bool:
     stages = a.get("stages")
     if stages and e.stage not in stages:
         return False
+    if e.audience and e.audience not in (a.get("audiences") or []):
+        return False      # local-postcode / young-adult / ... cards, unless you said they apply to you
     if a.get("only_eligible", True) and cr.eligibility(e, bal) in ("not_eligible", "higher_stage"):
         return False
     return True
@@ -193,7 +198,7 @@ def check(cfg: dict | None = None, now: dt.datetime | None = None, state_path: P
             continue
         left = e.when - now
         hrs = left.total_seconds() / 3600
-        in_txt = f"in {int(left.total_seconds() // 60)} min" if hrs < 1.5 else f"in {hrs:.0f}h" if hrs < 36 else f"in {left.days} days"
+        in_txt = f"in {int(left.total_seconds() // 60)} min" if hrs < 1.5 else f"in {hrs:.0f}h" if hrs < 36 else f"in {round(hrs / 24)} days"
         send(f"LFC: {e.title} {in_txt}", f"{who} - {_fmt_when(e)}. Be logged in early.", e.url,
              "urgent" if hrs < 1.5 else "high", "alarm_clock")
         for o2 in due:
@@ -206,12 +211,12 @@ def check(cfg: dict | None = None, now: dt.datetime | None = None, state_path: P
         old = ex.get(f.slug)
         if f.slug in watch_slugs and f.exchange == "open" and old != "open" and not first_run and \
                 "exchange" in (acfg.get("stages") or ["exchange"]):
-            send(f"Ticket Exchange open: {f.name}", f"{f.competition}, {f.kickoff.strftime('%a %d %b %H:%M')}. "
+            send(f"Ticket Exchange open: {f.name}", f"{f.competition}, {f.ko_text}. "
                  "Tickets on the Exchange go fast.", f.url, "urgent", "rotating_light")
             sent += 1
         ex[f.slug] = f.exchange
 
-    state["fixtures"] = {f.slug: {"name": f.name, "url": f.url, "kickoff": f.kickoff.isoformat(),
+    state["fixtures"] = {f.slug: {"name": f.name, "url": f.url, "kickoff": f.kickoff.isoformat() if f.kickoff else None,
                                   "competition": f.competition, "category": f.category,
                                   "exchange": f.exchange, "watch": f.slug in watch_slugs}
                          for f in fixtures}

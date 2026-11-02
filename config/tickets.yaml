@@ -36,7 +36,11 @@ alerts:
   reminders: [2d, 3h, 30m]   # reminders before each sale opens/closes
   only_eligible: true        # skip stages your credits don't qualify for
   stages: [registration, ballot, ballot_results, guaranteed_sale, members_sale, exchange,
-           general_sale, sale, hospitality]
+           general_sale, sale, membership_deadline, link_sent]
+  # add forwarding_deadline (if you buy for friends) or hospitality if you want those too
+  # Some sales are only for certain members. Add the ones that apply to you:
+  #   local (an 'L' postcode), young_adult (aged 17-24), junior, accessible, season_ticket
+  audiences: []
 
 # 5) Ticket Exchange alerts: which fixtures to check every run. "home", "away", "all", "none",
 #    or a list of opponents, e.g. [Arsenal, Manchester City].

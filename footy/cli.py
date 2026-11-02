@@ -202,28 +202,39 @@ def cmd_tickets(args):
         state = alerts.load_state()
         bal = cr.balances(cfg)
         now = pd.Timestamp.now(tz=lfc.LONDON)
-        evs = [e for e in alerts.events_from_state(state) if e.when > now or args.all]
+        evs = [e for e in alerts.events_from_state(state)
+               if (e.when > now or args.all) and (args.all or alerts._wanted(e, cfg, bal))]
         if not evs:
             print("No upcoming sale dates saved. Run: python -m footy tickets check")
         for e, who in alerts._groups(evs):
             elig = {"eligible": "YOU QUALIFY", "not_eligible": "not enough credits",
                     "higher_stage": "you're in an earlier stage", "unknown": ""}[cr.eligibility(e, bal)]
-            print(f"{alerts._fmt_when(e):26s} {e.title:42s} {who:38s} {elig}")
-        for slug, f in state.get("fixtures", {}).items():
-            if f.get("exchange") not in (None, "unknown"):
-                print(f"Ticket Exchange {f['name']}: {f['exchange']}")
+            print(f"{alerts._fmt_when(e):22s} {e.title:58s} {who:34s} {elig}")
+        fx = state.get("fixtures", {}).values()
+        open_ = [f["name"] for f in fx if f.get("exchange") == "open"]
+        watched = sum(1 for f in fx if f.get("watch"))
+        print(f"\nTicket Exchange: {', '.join(open_) if open_ else 'nothing listed'} "
+              f"({watched} fixtures watched, {len(fx)} checked)")
     elif act == "doctor":
         now = pd.Timestamp.now(tz=lfc.LONDON).to_pydatetime()
         target = args.url or lfc.LISTING_URL
         html = open(target, encoding="utf-8").read() if os.path.exists(target) else lfc.fetch(target, 0)
         fixtures = lfc.fixtures_from_listing(html)
-        print(f"{len(fixtures)} fixture links")
-        for f in fixtures[:30]:
-            print(f"  {f.kickoff:%a %d %b %H:%M}  {f.name}  -> {f.url}")
         text = lfc.page_text(html)
-        print(f"competition guess: {lfc.competition(text)[1]}, Ticket Exchange: {lfc.exchange_status(text)}")
-        for e in lfc.sale_events(text, target, now):
-            print(f"  {alerts._fmt_when(e):26s} {e.title}\n      \"{e.text[:160]}\"")
+        if fixtures:
+            print(f"{len(fixtures)} men's first-team match links")
+            for f in fixtures[:40]:
+                print(f"  {f.url}")
+        fx = lfc.Fixture("page", target)
+        if lfc.read_header(text, fx, now):
+            print(f"Match: {fx.name}, {fx.ko_text}, {fx.competition} at {fx.venue} (credits: {fx.category})")
+        page_cards = lfc.cards(text, now)
+        print(f"{len(page_cards)} sale cards; Ticket Exchange: {lfc.exchange_status(text, page_cards)}")
+        for c in page_cards:
+            print(f"  [{c.status}] {c.when:%a %d %b %H:%M}  {c.title}" if c.when else f"  [{c.status}] {c.title}")
+        for e in lfc.sale_events(text, target, now, fx if fx.kickoff or fx.away != "TBC" else None, page_cards=page_cards):
+            aud = f" [only for: {e.audience}]" if e.audience else ""
+            print(f"  {alerts._fmt_when(e):22s} {e.title}{aud}\n      \"{e.text[:140]}\"")
         if args.show_text:
             print("\n--- page text ---\n" + text)
     elif act == "test-alert":

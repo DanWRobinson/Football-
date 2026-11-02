@@ -28,8 +28,8 @@ from zoneinfo import ZoneInfo
 
 LONDON = ZoneInfo("Europe/London")
 BASE = "https://www.liverpoolfc.com"
-LISTING_URL = BASE + "/tickets/tickets-availability"
-HUB_PAGES = [BASE + "/tickets/members-ticket-sale", BASE + "/tickets"]
+LISTING_URL = BASE + "/tickets"     # /tickets/tickets-availability redirects here
+HUB_PAGES: list[str] = []
 
 # ---------------------------------------------------------------- HTML -> text
 
@@ -206,6 +206,9 @@ def find_datetimes(text: str, now: dt.datetime, latest: dt.datetime | None = Non
 # ---------------------------------------------------------------- stages and credits
 
 STAGES = [   # (stage, pattern) - first match wins, so the order matters
+    ("membership_deadline", r"purchased an? .{0,40}membership.{0,60}\b(by|before)\b|membership.{0,40}\bby midnight"),
+    ("forwarding_deadline", r"forwarding deadline"),
+    ("link_sent", r"^(?!.*\b(buy|purchase)\b).*\bunique link"),
     ("exchange", r"ticket exchange"),
     ("ballot_results", r"ballot.{0,60}(result|successful|unsuccessful|notified)|(result|successful|unsuccessful).{0,60}ballot"),
     ("guaranteed_sale", r"guaranteed"),
@@ -218,6 +221,8 @@ STAGES = [   # (stage, pattern) - first match wins, so the order matters
     ("sale", r"\bon sale\b|\bsale\b|\bpurchase\b"),
 ]
 STAGE_LABEL = {
+    "membership_deadline": "Buy/renew All Red membership", "forwarding_deadline": "Forwarding deadline",
+    "link_sent": "Sale link emailed",
     "exchange": "Ticket Exchange", "ballot_results": "Ballot results", "guaranteed_sale": "Guaranteed sale",
     "registration": "Registration", "ballot": "Ballot", "hospitality": "Hospitality",
     "general_sale": "General sale", "season_ticket": "Season ticket holders",
@@ -234,7 +239,7 @@ def classify(clause: str) -> str | None:
 
 
 _CLOSE = re.compile(r"\b(clos(e|es|ed|ing)|until|deadline|ends?|ending|by|no later than|before)\b", re.I)
-_OPEN = re.compile(r"\b(open(s|ed|ing)?|from|begin(s|ning)?|start(s|ing)?|go(es)? on sale|on sale|available|commenc(e|es|ing)|launch(es)?|live)\b", re.I)
+_OPEN = re.compile(r"\b(open(s|ed|ing)?|from|between|begin(s|ning)?|start(s|ing)?|go(es)? on sale|on sale|available|commenc(e|es|ing)|launch(es)?|live)\b", re.I)
 _WEEK = re.compile(r"week (commencing|beginning|of)(\s+(on|the))?$", re.I)
 
 
@@ -283,10 +288,12 @@ def credits_rule(clause: str) -> tuple[int | None, int | None]:
 
 # ---------------------------------------------------------------- fixtures
 
-SLUG_RE = re.compile(
+MATCH_RE = re.compile(r"/tickets/match/(?P<slug>[a-z0-9-]+)")
+OLD_SLUG_RE = re.compile(   # the pre-2026 /tickets/tickets-availability/<teams>-31-jan-2026-0800pm-502 links
     r"/tickets/tickets-availability/(?P<slug>(?P<teams>[a-z0-9-]+?-v-[a-z0-9-]+?)-(?P<d>\d{1,2})-(?P<m>[a-z]{3})-"
     r"(?P<y>20\d\d)-(?P<hm>\d{4})(?P<ap>am|pm)-(?P<id>\d+))\b")
 NEWS_RE = re.compile(r"/news/(?P<slug>[a-z0-9-]*(?:ticket|ballot|sale|members|all-red)[a-z0-9-]*)\b")
+NOT_FIRST_TEAM = re.compile(r"women|lfcw|u1\d|u2\d|academy|legends|hospitality")
 
 COMPETITIONS = [   # (key, label, pattern)
     ("europe", "Champions League", r"champions league|uefa|europa league|conference league"),
@@ -296,25 +303,21 @@ COMPETITIONS = [   # (key, label, pattern)
 ]
 
 
-def _team(s: str) -> str:
-    s = s.replace("-", " ").title()
-    return {"Liverpool Fc": "Liverpool"}.get(s, s.replace(" Fc", "").replace("Afc ", "AFC "))
-
-
 @dataclass
 class Fixture:
     slug: str
     url: str
-    home: str
-    away: str
-    kickoff: dt.datetime
+    home: str = "Liverpool"
+    away: str = "TBC"
+    kickoff: dt.datetime | None = None     # None = date & time TBC
     competition: str = "Premier League"
     comp_key: str = "pl"
     exchange: str = "unknown"          # open | none | closed | unknown
+    venue: str = ""
 
     @property
     def is_home(self) -> bool:
-        return self.home == "Liverpool"
+        return self.home.startswith("Liverpool")
 
     @property
     def opponent(self) -> str:
@@ -328,17 +331,22 @@ class Fixture:
     def category(self) -> str:
         return f"{self.comp_key}_{'home' if self.is_home else 'away'}"
 
+    @property
+    def ko_text(self) -> str:
+        return self.kickoff.strftime("%a %d %b %H:%M") if self.kickoff else "TBC"
 
-def fixture_from_slug(m: re.Match) -> Fixture | None:
-    teams = m.group("teams")
-    if "-v-" not in teams:
-        return None
-    home, away = teams.split("-v-", 1)
+
+def _team(s: str) -> str:
+    s = s.replace("-", " ").title()
+    return {"Liverpool Fc": "Liverpool"}.get(s, s.replace(" Fc", "").replace("Afc ", "AFC "))
+
+
+def _old_fixture(m: re.Match) -> Fixture | None:
+    home, away = m.group("teams").split("-v-", 1)
     hm, ap = m.group("hm"), m.group("ap")
-    h, mi = int(hm[:2]), int(hm[2:])
-    h = (h % 12) + (12 if ap == "pm" else 0)
+    h = (int(hm[:2]) % 12) + (12 if ap == "pm" else 0)
     try:
-        ko = dt.datetime(int(m.group("y")), _MONTHS[m.group("m")], int(m.group("d")), h, mi, tzinfo=LONDON)
+        ko = dt.datetime(int(m.group("y")), _MONTHS[m.group("m")], int(m.group("d")), h, int(hm[2:]), tzinfo=LONDON)
     except (KeyError, ValueError):
         return None
     return Fixture(m.group("slug"), BASE + "/tickets/tickets-availability/" + m.group("slug"),
@@ -346,14 +354,65 @@ def fixture_from_slug(m: re.Match) -> Fixture | None:
 
 
 def fixtures_from_listing(html: str) -> list[Fixture]:
+    """Men's first-team fixture links from the tickets page, in page (date) order."""
+    html = html.replace("\\/", "/")
     seen, out = set(), []
-    for m in SLUG_RE.finditer(html.replace("\\/", "/")):
-        if m.group("slug") in seen:
+    for m in MATCH_RE.finditer(html):
+        slug = m.group("slug")
+        if slug in seen or NOT_FIRST_TEAM.search(slug):
             continue
-        seen.add(m.group("slug"))
-        if fx := fixture_from_slug(m):
+        seen.add(slug)
+        out.append(Fixture(slug, BASE + "/tickets/match/" + slug))
+    for m in OLD_SLUG_RE.finditer(html):
+        if m.group("slug") not in seen and (fx := _old_fixture(m)):
+            seen.add(fx.slug)
             out.append(fx)
-    return sorted(out, key=lambda f: f.kickoff)
+    return out
+
+
+HEADER_RE = re.compile(r"^(?:(?P<hh>\d{1,2}):(?P<mm>\d{2}) / [A-Za-z]{3,9}\.? (?P<d>\d{1,2}) (?P<mon>[A-Za-z]{3,9})"
+                       r"(?: (?P<y>20\d\d))?|(?P<tbc>Date (?:& |and )?Time TBC|TBC))$", re.I)
+
+
+def read_header(text: str, fx: Fixture, now: dt.datetime) -> bool:
+    """Fill kick-off, teams, venue and competition from the match page header:
+    "16:30 / SUN 22 NOV" (or "Date & Time TBC"), then home, away, venue, competition lines."""
+    lines = text.split("\n")
+    for i, ln in enumerate(lines[:400]):
+        m = HEADER_RE.match(ln.strip())
+        if not m or len(lines) < i + 5:
+            continue
+        home, away, a, b = (x.strip() for x in lines[i + 1:i + 5])
+        if not (home and away) or "liverpool" not in (home + away).lower():
+            continue
+        if m.group("tbc"):
+            fx.kickoff = None
+        else:
+            try:
+                mon, day = _month(m.group("mon")), int(m.group("d"))
+                yr = int(m.group("y")) if m.group("y") else _pick_year(mon, day, now + dt.timedelta(days=120), None)
+                fx.kickoff = dt.datetime(yr, mon, day, int(m.group("hh")), int(m.group("mm")), tzinfo=LONDON)
+            except (KeyError, ValueError, TypeError):
+                continue
+        fx.home, fx.away = home, away
+        # venue and competition come in either order; the competition is the one we recognise
+        comp = next((x for x in (b, a) if competition(x)[2]), b)
+        fx.venue = a if comp is b else b
+        fx.comp_key, fx.competition, _ = competition(comp)
+        if not competition(comp)[2]:
+            fx.competition = comp
+        return True
+    return False
+
+
+def competition(text: str) -> tuple[str, str, int]:
+    low = text.lower()
+    best = ("pl", "Premier League", 0)
+    for key, label, pat in COMPETITIONS:
+        n = len(re.findall(pat, low))
+        if n > best[2]:
+            best = (key, label, n)
+    return best
 
 
 def news_links(html: str, limit: int = 6) -> list[str]:
@@ -365,22 +424,126 @@ def news_links(html: str, limit: int = 6) -> list[str]:
     return seen[:limit]
 
 
-def competition(text: str) -> tuple[str, str]:
-    low = text.lower()
-    best = ("pl", "Premier League", 0)
-    for key, label, pat in COMPETITIONS:
-        n = len(re.findall(pat, low))
-        if n > best[2]:
-            best = (key, label, n)
-    return best[0], best[1]
+# ---------------------------------------------------------------- sale cards
+
+CARD_RE = re.compile(
+    r"^(?P<status>(?:REGISTER|REGISTRATION|ON SALE|SALE|SOLD OUT|BALLOT|BUY|AVAILABLE|CLOSED|COMING|OPEN|"
+    r"CHECK BACK|LIMITED|TICKET EXCHANGE|EXCHANGE)[A-Z \'&/-]*?)\s*"
+    r"(?P<date>(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]* \d{1,2} [A-Za-z]{3,9} 20\d\d,? \d{1,2}[:.]\d{2}\s*[ap]m)?\s*$")
+_STOP = ("Official Club Partners", "Join All Red Video")
 
 
-def exchange_status(text: str) -> str:
-    """Ticket Exchange status from the clauses that mention it."""
+@dataclass
+class Card:
+    status: str            # "REGISTER SOON", "ON SALE NOW", "SOLD OUT", ...
+    when: dt.datetime | None
+    title: str             # "Additional Members Sale Registration All Red Members with ... 4 or more"
+    body: str
+
+    @property
+    def short(self) -> str | None:
+        """"Additional Members Sale Registration" - the title without the who-can-buy part
+        (None when the title is only who-can-buy, e.g. "Season Ticket Holders and All Red Members ...")."""
+        m = re.search(r"(?:^|\s)(?:All Red|Season Ticket Holders|Supporters|Official Members|Fans|Members with)\b", self.title)
+        head = (self.title[:m.start()] if m else self.title).strip(" -:")
+        return head or None
+
+    @property
+    def state(self) -> str:
+        st = self.status.upper()
+        if "SOLD OUT" in st:
+            return "sold_out"
+        if "CLOSED" in st:
+            return "closed"
+        if "SOON" in st or "COMING" in st or "CHECK BACK" in st:
+            return "soon"
+        return "open"
+
+    @property
+    def stage(self) -> str:
+        st, title = self.status.upper(), self.title.lower()
+        if "exchange" in title or "EXCHANGE" in st:
+            return "exchange"
+        if "REGIST" in st:
+            return "registration"
+        if "BALLOT" in st or ("ballot" in title and "sale" not in title):
+            return "ballot"
+        if "hospitality" in title:
+            return "hospitality"
+        if "general sale" in title or "general public" in title:
+            return "general_sale"
+        if re.search(r"\b(all red|members?)\b", title):
+            return "members_sale"
+        if "season ticket" in title:
+            return "season_ticket"
+        return "sale"
+
+    @property
+    def audience(self) -> str | None:
+        """Cards only some members can use (by age, postcode, ...). None = any All Red member."""
+        t = self.title.lower()
+        if "postcode" in t or re.search(r"\blocal\b", t):
+            return "local"
+        if re.search(r"young adult|aged|\b1[6-9]\s*-\s*2\d", t):
+            return "young_adult"
+        if "junior" in t and "all red" not in t:
+            return "junior"
+        if re.search(r"disab|accessib|ambulant|wheelchair", t):
+            return "accessible"
+        if "season ticket" in t and "member" not in t:
+            return "season_ticket"
+        return None
+
+
+def cards(text: str, now: dt.datetime) -> list[Card]:
+    lines = text.split("\n")
+    heads = [(i, m) for i, ln in enumerate(lines) if (m := CARD_RE.match(ln.strip()))
+             and (m.group("date") or not m.group("status").startswith("BUY"))]   # "BUY NOW" buttons aren't cards
+    out = []
+    for n, (i, m) in enumerate(heads):
+        end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
+        for j in range(i + 1, end):
+            if lines[j].strip().startswith(_STOP):
+                end = j
+                break
+        rest = [ln for ln in lines[i + 1:end] if ln.strip() and ln.strip().lower() not in ("read more", "buy now")]
+        if not rest:
+            continue
+        when = None
+        if m.group("date"):
+            f = find_datetimes(m.group("date"), now)
+            when = f[0].when if f else None
+        out.append(Card(m.group("status").strip(), when, rest[0].strip(), "\n".join(rest[1:])))
+    return out
+
+
+_CREDIT_CAT = re.compile(r"(premier league|european|uefa|champions league|domestic cup|cup|fa cup|league cup)\s+"
+                         r"(home|away)\s+(?:match\s+)?credit", re.I)
+
+
+def credit_category(text: str) -> str | None:
+    """"European Away Match Credit Balance" -> europe_away."""
+    m = _CREDIT_CAT.search(text)
+    if not m:
+        return None
+    comp = m.group(1).lower()
+    key = "pl" if comp == "premier league" else "europe" if comp in ("european", "uefa", "champions league") else "cup"
+    return f"{key}_{m.group(2).lower()}"
+
+
+def exchange_status(text: str, page_cards: list[Card] | None = None) -> str:
+    """Ticket Exchange status. Cards are definitive when the page has them; otherwise look for
+    sentences that say the Exchange is open (ignoring the usual "cannot be listed on" small print)."""
+    if page_cards:
+        ex = [c for c in page_cards if c.stage == "exchange"]
+        if not ex:
+            return "none"
+        states = {c.state for c in ex}
+        return "open" if "open" in states else "closed" if "closed" in states else "none"
     status = "unknown"
     for clause in re.split(r"(?<=[.!?])\s+|\n", text):
         low = clause.lower()
-        if "exchange" not in low:
+        if "exchange" not in low or re.search(r"cannot|can not|can't|not be (listed|returned)", low):
             continue
         if re.search(r"sold out|no tickets|none available|not (currently )?available|currently no|unavailable", low):
             status = "none"
@@ -401,16 +564,19 @@ class SaleEvent:
     has_time: bool
     text: str
     url: str
-    fixture: str | None = None        # "Liverpool v Newcastle United"
+    fixture: str | None = None        # "Liverpool v Manchester United"
     fixture_slug: str | None = None
     category: str = "pl_home"
     min_credits: int | None = None
     max_credits: int | None = None
+    card: str | None = None           # short card name, "Additional Members Sale Registration"
+    audience: str | None = None       # local | young_adult | junior | accessible | season_ticket
     id: str = field(default="")
 
     def __post_init__(self):
         if not self.id:
-            key = f"{self.fixture_slug or self.url}|{self.stage}|{self.action}|{self.when.isoformat()}"
+            key = (f"{self.fixture_slug or self.url}|{self.stage}|{self.action}|{self.when.isoformat()}|"
+                   f"{self.min_credits}|{self.max_credits}|{self.audience}|{self.card}")
             self.id = hashlib.sha1(key.encode()).hexdigest()[:12]
 
     @property
@@ -418,10 +584,17 @@ class SaleEvent:
         verb = {"opens": "opens", "closes": "closes", "on": "", "week_of": ""}[self.action]
         if self.stage == "ballot_results":
             verb = "due" if self.action in ("closes", "on") else verb
+        if self.stage in ("membership_deadline", "forwarding_deadline", "link_sent"):
+            verb = ""
+        label = STAGE_LABEL[self.stage]
+        if self.card:
+            same = {"registration": "regist", "ballot": "ballot", "members_sale": "sale", "sale": "sale",
+                    "general_sale": "sale", "exchange": "exchange", "hospitality": "hospitality"}
+            label = self.card if same.get(self.stage, "@") in self.card.lower() else f"{self.card}: {label}"
         who = ""
         if self.min_credits is not None:
             who = f" ({self.min_credits}" + (f"-{self.max_credits}" if self.max_credits is not None else "+") + " credits)"
-        return f"{STAGE_LABEL[self.stage]} {verb}{who}".replace("  ", " ").strip()
+        return re.sub(r"\s+", " ", f"{label} {verb}{who}").strip()
 
     def to_json(self) -> dict:
         d = asdict(self)
@@ -432,10 +605,10 @@ class SaleEvent:
     def from_json(cls, d: dict) -> "SaleEvent":
         d = dict(d)
         d["when"] = dt.datetime.fromisoformat(d["when"])
-        return cls(**d)
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
-_CLAUSE_SPLIT = re.compile(r";\s+|,\s+(?:and|while|whereas|but)\s+|\s+(?:while|whereas)\s+|\s+and\s+(?=(?:those|members|supporters|fans|all red|season)\b)", re.I)
+_CLAUSE_SPLIT = re.compile(r";\s+|\s+(?=using (?:the|a|their) unique link)|,\s+(?:and|while|whereas|but)\s+|\s+(?:while|whereas)\s+|\s+and\s+(?=(?:those|members|supporters|fans|all red|season)\b)", re.I)
 
 
 def _paragraphs(text: str) -> list[list[str]]:
@@ -443,11 +616,11 @@ def _paragraphs(text: str) -> list[list[str]]:
             for line in text.split("\n")]
 
 
-def sale_events(text: str, url: str, now: dt.datetime, fixture: Fixture | None = None,
-                default_category: str = "pl_home") -> list[SaleEvent]:
+def _text_events(text: str, url: str, now: dt.datetime, fixture: Fixture | None, category: str,
+                 stage0: str | None = None, credits0=(None, None), card: Card | None = None) -> list[SaleEvent]:
     latest = fixture.kickoff if fixture else None
-    events: dict[str, SaleEvent] = {}
-    last_stage = None
+    out: list[SaleEvent] = []
+    last_stage = stage0
     for para in _paragraphs(text):
         para_rule: dict[str, tuple] = {}     # stage -> credit rule stated earlier in this paragraph
         for sent in para:
@@ -455,44 +628,80 @@ def sale_events(text: str, url: str, now: dt.datetime, fixture: Fixture | None =
                 continue
             s_credits = credits_rule(sent)
             s_stage = classify(sent)
-            if not s_stage and s_credits[0] is not None:
+            if not s_stage and (s_credits[0] is not None or card):
                 s_stage = last_stage   # "Members with 9+ credits from 11am on ..." continues the last stage
             last_stage = s_stage or last_stage
             for clause in _CLAUSE_SPLIT.split(sent):
                 stage = classify(clause) or s_stage
                 if not stage:
                     continue
+                if card and stage in ("sale", "members_sale", "registration", "ballot") and stage != stage0 \
+                        and not re.match(r"^\s*(registration|ballot|sale)\s*:", clause, re.I):
+                    stage = stage0 if stage in ("sale", "members_sale") else stage
                 mn, mx = credits_rule(clause)
                 if mn is None:
                     mn, mx = s_credits
                 if mn is None:
-                    mn, mx = para_rule.get(stage, (None, None))
+                    mn, mx = para_rule.get(stage, credits0)
                 elif stage not in para_rule:
                     para_rule[stage] = (mn, mx)
-                prev = 0
+                prev, last_act = 0, None
                 for f in find_datetimes(clause, now, latest):
                     before = clause[prev:f.start]
                     prev = f.end
-                    if fixture and f.when.date() == fixture.kickoff.date() and stage != "exchange":
+                    if fixture and fixture.kickoff and f.when.date() == fixture.kickoff.date() and stage != "exchange":
                         continue          # that's the match date, not a sale date
                     act = action_for(before)
-                    ev = SaleEvent(stage, act, f.when, f.has_time and act != "week_of", sent, url,
-                                   fixture.name if fixture else None, fixture.slug if fixture else None,
-                                   fixture.category if fixture else default_category, mn, mx)
-                    events.setdefault(ev.id, ev)
-    return sorted(events.values(), key=lambda e: e.when)
+                    if last_act == "opens" and re.fullmatch(r"\s*(and|to|-|–)\s*(on\s+)?", before, re.I):
+                        act = "closes"    # "between Thursday 12 November and Friday 13 November"
+                    last_act = act
+                    out.append(SaleEvent(
+                        stage, act, f.when, f.has_time and act != "week_of", sent, url,
+                        fixture.name if fixture else None, fixture.slug if fixture else None,
+                        credit_category(clause) or category, mn, mx,
+                        card.short if card and card.short else None, card.audience if card else None))
+    return out
+
+
+def sale_events(text: str, url: str, now: dt.datetime, fixture: Fixture | None = None,
+                default_category: str = "pl_home", page_cards: list[Card] | None = None) -> list[SaleEvent]:
+    """Every dated sale step on a page. Match pages are read card by card (each card's title says
+    who it's for and which credits count); news pages, which have no cards, sentence by sentence."""
+    category = fixture.category if fixture else default_category
+    page_cards = cards(text, now) if page_cards is None else page_cards
+    events: list[SaleEvent] = []
+    if page_cards:
+        for c in page_cards:
+            mn, mx = credits_rule(c.title)
+            cat = credit_category(c.title) or category
+            if c.when:
+                act = "opens" if c.state in ("soon", "open", "sold_out") else "on"
+                events.append(SaleEvent(c.stage, act, c.when, True, f"{c.status.title()}: {c.title}", url,
+                                        fixture.name if fixture else None, fixture.slug if fixture else None,
+                                        cat, mn, mx, c.short or None, c.audience))
+            events += _text_events(c.body, url, now, fixture, cat, c.stage, (mn, mx), c)
+        # "...the sale taking place on Monday 16 November" just repeats a date another card gives a time for
+        timed_days = {e.when.date() for e in events if e.has_time}
+        events = [e for e in events if e.has_time or e.action == "week_of" or e.when.date() not in timed_days
+                  or e.stage in ("link_sent", "ballot", "ballot_results", "membership_deadline")]
+    else:
+        events = _text_events(text, url, now, fixture, category)
+    uniq: dict[str, SaleEvent] = {}
+    for e in events:
+        uniq.setdefault(e.id, e)
+    return sorted(uniq.values(), key=lambda e: e.when)
 
 
 # ---------------------------------------------------------------- fetching
 
 def fetch(url: str, ttl: float) -> str:
     from ..sources import http
-    return http.get(url, ttl=ttl)
+    return http.get(url, ttl=ttl, headers={"User-Agent": "footy-lfc-ticket-alerts/1.0 (personal sale-date reminders)"})
 
 
 def scrape(now: dt.datetime | None = None, fixture_ttl: float = 3600, listing_ttl: float = 600,
            live_slugs: set[str] | None = None, fetcher=fetch, log=print):
-    """Fetch the listing, every fixture page and linked ticket news.
+    """Fetch the tickets page, every men's first-team match page and linked ticket news.
 
     Returns (fixtures, events, errors). Pages in `live_slugs` are always fetched fresh (used for
     Ticket Exchange alerts); everything else is cached for `fixture_ttl` seconds.
@@ -505,18 +714,26 @@ def scrape(now: dt.datetime | None = None, fixture_ttl: float = 3600, listing_tt
         listing = fetcher(LISTING_URL, listing_ttl)
     except Exception as e:  # noqa: BLE001
         return [], [], [f"{LISTING_URL}: {e}"]
-    fixtures = [f for f in fixtures_from_listing(listing) if f.kickoff > now - dt.timedelta(hours=3)]
     extra = list(dict.fromkeys(news_links(listing) + HUB_PAGES))
-    for fx in fixtures:
+    fixtures = []
+    for fx in fixtures_from_listing(listing):
         try:
             html = fetcher(fx.url, 0 if fx.slug in live_slugs else fixture_ttl)
         except Exception as e:  # noqa: BLE001
             errors.append(f"{fx.url}: {e}")
             continue
         text = page_text(html)
-        fx.comp_key, fx.competition = competition(text)
-        fx.exchange = exchange_status(text)
-        events += sale_events(text, fx.url, now, fx)
+        page_cards = cards(text, now)
+        if not read_header(text, fx, now):
+            if not page_cards:
+                errors.append(f"{fx.url}: no match header or sale cards found (page layout changed?)")
+                continue
+            fx.comp_key, fx.competition, _ = competition(text)
+        if "women" in fx.competition.lower() or (fx.kickoff and fx.kickoff < now - dt.timedelta(hours=3)):
+            continue
+        fx.exchange = exchange_status(text, page_cards)
+        events += sale_events(text, fx.url, now, fx, page_cards=page_cards)
+        fixtures.append(fx)
         for u in news_links(html, 3):
             if u not in extra:
                 extra.append(u)

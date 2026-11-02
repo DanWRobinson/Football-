@@ -45,7 +45,7 @@ cancelled. Reselling football tickets without the club's permission is a crimina
 
 | What | How |
 |---|---|
-| **Sale-date alerts** | Every 15 minutes (06:00–midnight UTC) a GitHub Action reads [ticket availability](https://www.liverpoolfc.com/tickets/tickets-availability), each fixture page and linked ticket news. It sends a phone alert when a new sale date appears, then reminders 2 days, 3 hours and 30 minutes before each registration window, ballot, guaranteed sale or members' sale opens or closes. |
+| **Sale-date alerts** | Every 15 minutes (06:00–midnight UTC) a GitHub Action reads the [tickets page](https://www.liverpoolfc.com/tickets) and each men's first-team match page. It sends a phone alert when a new sale date appears, then reminders 2 days, 3 hours and 30 minutes before each registration window, ballot, guaranteed sale or members' sale opens or closes. |
 | **Credit tracker** | You keep your balances in `config/tickets.yaml`, copied from My Account, plus the games you've bought since. It shows your level (2026-27 Premier League home: **13+** guaranteed sale, **4–12** ballot for every game, **under 4** selected games only), how many games until the next level, and it **skips alerts for stages you don't qualify for**. |
 | **Ticket Exchange alerts** | Sends an alert when a watched fixture's page changes to show Exchange tickets available (home games by default). The Action checks every 15 minutes. For faster checks, run `python -m footy tickets watch` on a laptop or Codespace (every 3 minutes by default, never faster than every 2). |
 | **Calendar** | `lfc-tickets.ics` sits next to the daily page, and the **LFC tickets** tab has a subscribe link. Every sale date lands in your iPhone calendar with the same alarms. |
@@ -72,9 +72,15 @@ python -m footy tickets doctor --url <page or saved .html>   # show exactly what
 ```
 
 **Caveats.**
-- The club writes sale details as prose, so the parser reads sentences: dates, times, "opens/closes",
-  "13+ credits" and so on. A redesign of the site can confuse it. `doctor` shows what it found,
-  and you get one alert if the site can't be read for about 2 hours.
+- Match pages list each sale as a card: a status and date ("REGISTER SOON Fri 6 Nov 2026,
+  11:00am"), a title saying who it's for ("…Premier League Home Credit Balance of 4 or more") and
+  the details. The parser reads those cards, so it was tested on real pages from November 2026.
+  If the club redesigns them, `doctor` shows what was found, and you get one alert if the site
+  can't be read for about 2 hours.
+- Cards for specific groups (an 'L' postcode, ages 17–24, wheelchair/ambulant seating) are skipped
+  unless you add them under `alerts: audiences:` in `config/tickets.yaml`.
+- I haven't seen a live Ticket Exchange listing on a match page yet, so Exchange alerts assume it
+  appears as a card like the others. Run `doctor --url <match page>` when one is live to check.
 - Credit-earning rules change (a multi-year loyalty scheme is being phased in from 2026-27), so
   My Account is always the source of truth. Update the thresholds in `config/tickets.yaml` if the
   club changes them.

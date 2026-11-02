@@ -1,4 +1,5 @@
 import datetime as dt
+import re
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ from footy.tickets import alerts, credits as cr, lfc
 from footy.tickets.lfc import LONDON
 
 FX = Path(__file__).parent / "fixtures" / "lfc"
-NOW = dt.datetime(2026, 10, 30, 12, 0, tzinfo=LONDON)
+NOW = dt.datetime(2026, 11, 2, 12, 0, tzinfo=LONDON)
 
 
 def at(*a):
@@ -20,7 +21,7 @@ def fake_fetcher(pages: dict[str, str]):
     def fetch(url, ttl):
         calls.append((url, ttl))
         for key, name in pages.items():
-            if key in url:
+            if key in url if key != "LISTING" else url == lfc.LISTING_URL:
                 return (FX / name).read_text()
         raise lfc_error(url)
     fetch.calls = calls
@@ -32,55 +33,82 @@ def lfc_error(url):
     return FetchError(f"HTTP 404 for {url}")
 
 
-PAGES = {"tickets-availability/liverpool-fc-v-newcastle": "newcastle.html",
-         "tickets-availability/liverpool-fc-v-villarreal": "villarreal.html",
-         "/news/all-red": "news.html",
-         "tickets-availability": "listing.html"}
+MU = "liverpool-v-manchester-united-english-premier-league-20261122"
+FENER = "fenerbahce-v-liverpool-uefa-champions-league-20261104"
+CUP = "2026-27-carabao-cup-quarter-final"
+PAGES = {MU: "man_utd.html", FENER: "fenerbahce.html", CUP: "cup_tbc.html",
+         "LISTING": "listing.html"}
 
 
-def test_listing_fixtures():
+def match_page(name, slug="x"):
+    fx = lfc.Fixture(slug, "https://www.liverpoolfc.com/tickets/match/" + slug)
+    text = lfc.page_text((FX / name).read_text())
+    assert lfc.read_header(text, fx, NOW)
+    return fx, text
+
+
+def test_listing_first_team_only():
     fx = lfc.fixtures_from_listing((FX / "listing.html").read_text())
-    assert [f.name for f in fx] == ["Aston Villa v Liverpool", "Liverpool v Villarreal",
-                                   "Liverpool v Newcastle United"]
-    n = fx[-1]
-    assert n.kickoff == at(2027, 1, 31, 20, 0) and n.is_home and n.opponent == "Newcastle United"
-    assert not fx[0].is_home and fx[0].kickoff == at(2026, 11, 15, 16, 30)
-    assert lfc.news_links((FX / "listing.html").read_text())[0].endswith(
-        "all-red-ticket-sale-details-confirmed-for-remaining-premier-league-home-games")
+    slugs = [f.slug for f in fx]
+    assert slugs[:3] == [FENER, "crystal-palace-v-liverpool-english-premier-league-20261108", MU]
+    assert CUP in slugs and not any(re.search("women|u21", s) for s in slugs)
+    assert len(slugs) == 8
 
 
-def test_sentences_to_events():
+def test_match_header():
+    fx, _ = match_page("man_utd.html")
+    assert (fx.home, fx.away, fx.kickoff, fx.competition, fx.venue, fx.category) == (
+        "Liverpool", "Manchester United", at(2026, 11, 22, 16, 30), "Premier League", "Anfield", "pl_home")
+    fx, _ = match_page("fenerbahce.html")
+    assert (fx.name, fx.kickoff, fx.category) == ("Fenerbahce v Liverpool", at(2026, 11, 4, 17, 45), "europe_away")
+    fx, _ = match_page("cup_tbc.html")
+    assert (fx.name, fx.kickoff, fx.competition, fx.category) == ("Liverpool v Bournemouth", None, "League Cup", "cup_home")
+
+
+def test_cards():
+    _, text = match_page("man_utd.html")
+    cs = lfc.cards(text, NOW)
+    assert [c.status for c in cs][:5] == ["REGISTER SOON"] * 5 and cs[5].status == "ON SALE SOON"
+    c = cs[0]
+    assert (c.when, c.stage, c.short, c.audience, lfc.credits_rule(c.title)) == (
+        at(2026, 11, 6, 11), "registration", "Additional Members Sale Registration", None, (4, None))
+    assert (cs[5].stage, cs[5].when) == ("members_sale", at(2026, 11, 16, 11))
+    assert [c.audience for c in cs[6:]] == ["young_adult", "local", "local"]
+    assert lfc.exchange_status(text, cs) == "none"   # "cannot be listed on the Ticket Exchange" is small print
+
+
+def test_match_page_events():
+    fx, text = match_page("man_utd.html")
+    ev = [e for e in lfc.sale_events(text, fx.url, NOW, fx) if e.audience is None]
+    got = {(e.title, e.when, e.has_time) for e in ev}
+    assert ("Additional Members Sale Registration opens (4+ credits)", at(2026, 11, 6, 11), True) in got
+    assert ("Additional Members Sale Registration closes (4+ credits)", at(2026, 11, 7, 10), True) in got
+    assert ("Additional Members Sale Registration closes (1+ credits)", at(2026, 11, 7, 10), True) in got
+    assert ("Additional Members Sale opens (4+ credits)", at(2026, 11, 16, 11), True) in got
+    assert ("Additional Members Sale: Sale link emailed (4+ credits)", at(2026, 11, 13, 9), False) in got
+    # "the sale taking place on Monday 16 November" doesn't add a second, untimed entry
+    assert not any(e.when.date() == dt.date(2026, 11, 16) and not e.has_time for e in ev)
+    assert all(e.category == "pl_home" and e.fixture == "Liverpool v Manchester United" for e in ev)
+    local = [e for e in lfc.sale_events(text, fx.url, NOW, fx) if e.audience == "local"]
+    assert {e.title for e in local} >= {"Local Members Ballot: Buy/renew All Red membership",
+                                       "Local Members Ballot: Registration opens", "Local Members Ballot"}
+
+
+def test_sold_out_away_card():
+    fx, text = match_page("fenerbahce.html")
+    ev = [(e.title, e.when, e.category) for e in lfc.sale_events(text, fx.url, NOW, fx)]
+    assert ev == [("Members' sale opens (6+ credits)", at(2026, 10, 21, 11), "europe_away"),
+                  ("Members' sale closes (6+ credits)", at(2026, 10, 21, 12, 30), "europe_away"),
+                  ("Forwarding deadline (6+ credits)", at(2026, 10, 21, 13), "europe_away")]
+
+
+def test_news_sentences():
     text = lfc.page_text((FX / "news.html").read_text())
     ev = lfc.sale_events(text, "u", NOW)
     got = [(e.stage, e.action, e.when, e.has_time) for e in ev]
     assert got == [("registration", "opens", at(2026, 10, 26, 14), True),
                    ("registration", "closes", at(2026, 11, 2, 10), True),
                    ("guaranteed_sale", "week_of", at(2026, 11, 9, 9), False)]
-
-
-def test_fixture_page_credits_and_exchange():
-    fx = lfc.fixtures_from_listing((FX / "listing.html").read_text())[-1]
-    text = lfc.page_text((FX / "newcastle.html").read_text())
-    ev = {(e.stage, e.action): e for e in lfc.sale_events(text, fx.url, NOW, fx)}
-    g = ev[("guaranteed_sale", "opens")]
-    assert g.when == at(2026, 11, 10, 8, 15) and g.min_credits == 13 and g.fixture == fx.name
-    r = ev[("registration", "closes")]
-    assert (r.min_credits, r.max_credits) == (4, 12) and r.when == at(2026, 11, 2, 10)
-    assert ev[("ballot_results", "closes")].title == "Ballot results due"
-    # the match date (Saturday January 31) is not a sale date
-    assert all(e.when.date() != fx.kickoff.date() for e in ev.values())
-    assert lfc.exchange_status(text) == "none"
-
-
-def test_next_data_page():
-    text = lfc.page_text((FX / "villarreal.html").read_text())
-    assert lfc.competition(text)[1] == "Champions League"
-    assert lfc.exchange_status(text) == "open"
-    fx = lfc.Fixture("v", "u", "Liverpool", "Villarreal", at(2026, 11, 25, 20), "Champions League", "europe")
-    ev = lfc.sale_events(text, "u", NOW, fx)
-    assert [(e.stage, e.when, e.min_credits, e.category) for e in ev if e.stage != "exchange"] == [
-        ("members_sale", at(2026, 11, 12, 11), 3, "europe_home"),
-        ("members_sale", at(2026, 11, 13, 13), 1, "europe_home")]
 
 
 @pytest.mark.parametrize("s,expected", [
@@ -121,43 +149,61 @@ def test_credit_balances_and_levels():
 
 def test_check_alerts_once(tmp_path):
     state = tmp_path / "state.json"
-    cfg = {"credits": {"pl_home": 5, "europe_home": 0}, "alerts": {"reminders": ["2d", "3h", "30m"]},
-           "exchange": {"watch": "home"}}
+    cfg = {"credits": {"pl_home": 5}, "alerts": {"reminders": ["2d", "3h", "30m"]}, "exchange": {"watch": "home"}}
     sent = []
     send = lambda title, msg, *a, **k: sent.append(title)  # noqa: E731
     fetch = fake_fetcher(PAGES)
+    quiet = lambda *a: None  # noqa: E731
 
-    # first run records everything quietly (no flood of "new sale" alerts) ...
-    r = alerts.check(cfg, at(2026, 10, 30, 12), state, fetch, send, log=lambda *a: None)
-    assert r["fixtures"] == 3 and r["errors"] and not any(t.startswith("New") for t in sent)
-    assert (tmp_path / "lfc-tickets.ics").read_text().startswith("BEGIN:VCALENDAR")
-    # ... but the registration deadline is under 3 days away, so the 2-day reminder fires
+    # first run records everything quietly (no flood of "new sale" alerts)
+    r = alerts.check(cfg, at(2026, 11, 2, 12), state, fetch, send, log=quiet)
+    assert r["fixtures"] == 3 and not sent      # past/sold-out Fenerbahce sale is ignored, women's games skipped
+    assert "BEGIN:VEVENT" in (tmp_path / "lfc-tickets.ics").read_text()
+    # registration opens Fri 6 Nov 11:00 -> 2-day reminder on Wed; one alert for the 4+ card, not one per card
+    alerts.check(cfg, at(2026, 11, 4, 12), state, fetch, send, log=quiet)
+    assert sent == ["LFC: Additional Members Sale Registration opens (4+ credits) in 2 days"]
+    alerts.check(cfg, at(2026, 11, 4, 12, 15), state, fetch, send, log=quiet)
+    assert len(sent) == 1                         # not repeated
     sent.clear()
-    alerts.check(cfg, at(2026, 10, 31, 11), state, fetch, send, log=lambda *a: None)
-    assert any("Registration closes" in t for t in sent)
-    n = len(sent)
-    alerts.check(cfg, at(2026, 10, 31, 11, 15), state, fetch, send, log=lambda *a: None)
-    assert len(sent) == n                                   # not repeated
+    alerts.check(cfg, at(2026, 11, 6, 10, 40), state, fetch, send, log=quiet)
+    assert sent == ["LFC: Additional Members Sale Registration opens (4+ credits) in 20 min",
+                    "LFC: Additional Members Sale Registration closes (4+ credits) in 23h"]
+    # local-postcode / young-adult cards stay quiet unless you opt in
     sent.clear()
-    alerts.check(cfg, at(2026, 11, 2, 9, 40), state, fetch, send, log=lambda *a: None)
-    assert sent == ["LFC: Registration closes (4-12 credits) in 20 min"]   # skips the stale 3h one
+    cfg["alerts"]["audiences"] = ["local"]
+    alerts.check(cfg, at(2026, 11, 6, 9, 40), tmp_path / "s2.json", fetch, send, log=quiet)
+    assert "LFC: Local Members Ballot: Registration opens in 20 min" in sent
+    assert not any("Young Adult" in t for t in sent)
 
-    # 5 PL credits: the 13+ guaranteed sale never alerts
-    assert not any("Guaranteed sale opens" in t for t in sent)
+
+def test_new_sale_alert_and_eligibility(tmp_path):
+    state = tmp_path / "state.json"
+    sent = []
+    send = lambda title, msg, *a, **k: sent.append((title, msg))  # noqa: E731
+    quiet = lambda *a: None  # noqa: E731
+    only_fener = {FENER: "fenerbahce.html", "LISTING": "listing.html"}
+    cfg = {"credits": {"pl_home": 2}, "alerts": {"reminders": []}}
+    alerts.check(cfg, NOW, state, fake_fetcher(only_fener), send, log=quiet)
+    alerts.check(cfg, NOW, state, fake_fetcher(PAGES), send, log=quiet)      # Man Utd page appears
+    titles = [t for t, _ in sent]
+    assert "New LFC sale date: Liverpool v Manchester United" in titles
+    msgs = [m for t, m in sent if "Manchester United" in t]
+    # with 2 credits you get the 2+ card, and never the 4+ one
+    assert any("Additional Members Sale Registration opens (2+ credits)" in m and "You qualify" in m for m in msgs)
+    assert not any("(4+ credits)" in m or "(3+ credits)" in m for m in msgs)
 
 
 def test_exchange_alert(tmp_path):
     state = tmp_path / "state.json"
-    cfg = {"credits": {}, "alerts": {"reminders": []}, "exchange": {"watch": ["villarreal"]}}
-    pages = dict(PAGES, **{"tickets-availability/liverpool-fc-v-villarreal": "newcastle.html"})
+    cfg = {"credits": {}, "alerts": {"reminders": []}, "exchange": {"watch": ["manchester united"]}}
     sent = []
     send = lambda title, msg, *a, **k: sent.append(title)  # noqa: E731
-    alerts.check(cfg, NOW, state, fake_fetcher(pages), send, log=lambda *a: None)
+    alerts.check(cfg, NOW, state, fake_fetcher(PAGES), send, log=lambda *a: None)
     assert not sent
-    fetch = fake_fetcher(PAGES)                     # now the Villarreal page shows tickets
+    fetch = fake_fetcher(dict(PAGES, **{MU: "man_utd_exchange.html"}))
     alerts.check(cfg, NOW + dt.timedelta(minutes=5), state, fetch, send, log=lambda *a: None)
-    assert sent == ["Ticket Exchange open: Liverpool v Villarreal"]
-    assert any(ttl == 0 and "villarreal" in u for u, ttl in fetch.calls)   # watched page fetched fresh
+    assert sent == ["Ticket Exchange open: Liverpool v Manchester United"]
+    assert any(ttl == 0 and MU in u for u, ttl in fetch.calls)   # watched page fetched fresh
 
 
 def test_ics_alarms():

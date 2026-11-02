@@ -100,14 +100,15 @@ def tickets_section() -> str:
     bal = cr.balances(cfg)
     now = dt.datetime.now(dt.timezone.utc)
     rows = []
-    for e, who in alerts._groups([e for e in alerts.events_from_state(state) if e.when > now]):
+    for e, who in alerts._groups([e for e in alerts.events_from_state(state)
+                                  if e.when > now and alerts._wanted(e, cfg, bal)]):
         rows.append({"when": alerts._fmt_when(e), "what": e.title, "who": who,
                      "you": {"eligible": "✓ you qualify", "not_eligible": "not enough credits",
                              "higher_stage": "earlier stage for you", "unknown": ""}[cr.eligibility(e, bal)]})
     ev = pd.DataFrame(rows)
     lv = pd.DataFrame(cr.levels(cfg))
     ex = pd.DataFrame([{"match": f["name"], "comp": f["competition"],
-                        "ko": dt.datetime.fromisoformat(f["kickoff"]).strftime("%a %d %b %H:%M"),
+                        "ko": dt.datetime.fromisoformat(f["kickoff"]).strftime("%a %d %b %H:%M") if f.get("kickoff") else "TBC",
                         "exchange": {"open": "OPEN", "none": "none listed", "closed": "closed"}.get(f["exchange"], "-"),
                         "watch": "✓" if f.get("watch") else ""} for f in state.get("fixtures", {}).values()])
     checked = state.get("checked_at", "")[:16].replace("T", " ")
