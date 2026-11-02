@@ -90,6 +90,47 @@ def table(df: pd.DataFrame, spec: list[tuple[str, str, str]]) -> str:
     return f'<div class="tw"><table><thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
 
 
+def tickets_section() -> str:
+    """Upcoming LFC sale dates and credit levels, from `python -m footy tickets check` state."""
+    from .tickets import alerts, credits as cr
+    state = alerts.load_state()
+    cfg = cr.load()
+    if not state.get("events") and not cfg:
+        return ""
+    bal = cr.balances(cfg)
+    now = dt.datetime.now(dt.timezone.utc)
+    rows = []
+    for e, who in alerts._groups([e for e in alerts.events_from_state(state) if e.when > now]):
+        rows.append({"when": alerts._fmt_when(e), "what": e.title, "who": who,
+                     "you": {"eligible": "✓ you qualify", "not_eligible": "not enough credits",
+                             "higher_stage": "earlier stage for you", "unknown": ""}[cr.eligibility(e, bal)]})
+    ev = pd.DataFrame(rows)
+    lv = pd.DataFrame(cr.levels(cfg))
+    ex = pd.DataFrame([{"match": f["name"], "comp": f["competition"],
+                        "ko": dt.datetime.fromisoformat(f["kickoff"]).strftime("%a %d %b %H:%M"),
+                        "exchange": {"open": "OPEN", "none": "none listed", "closed": "closed"}.get(f["exchange"], "-"),
+                        "watch": "✓" if f.get("watch") else ""} for f in state.get("fixtures", {}).values()])
+    checked = state.get("checked_at", "")[:16].replace("T", " ")
+    err = f'<p class="note neg">Last check failed: {html.escape(state["last_error"])}</p>' if state.get("last_error") else ""
+    out = [f'<p class="note">Read from liverpoolfc.com\'s public ticket pages (last checked {checked} UK). '
+           'Always confirm on the club site - this never buys anything for you.</p>', err,
+           '<p><a id="webcal" href="lfc-tickets.ics">📅 Subscribe to sale dates in your calendar</a></p>'
+           "<script>(()=>{const a=document.getElementById('webcal');a.href='webcal://'+location.host+"
+           "location.pathname.replace(/[^/]*$/,'')+'lfc-tickets.ics'})()</script>",
+           "<h2>Upcoming sale dates</h2>",
+           table(ev, [("when", "When (UK)", "text"), ("what", "What", "text"), ("who", "Fixture", "text"),
+                      ("you", "You", "text")]) if not ev.empty else '<p class="note">None announced yet.</p>']
+    if not lv.empty:
+        out += ["<h2>Your credits</h2>", table(lv, [("category", "Category", "text"), ("credits", "Credits", "int"),
+                                                   ("level", "Level", "text"), ("next_level", "Next level", "text"),
+                                                   ("games_needed", "Games to go", "int")])]
+    if not ex.empty:
+        out += ["<h2>Ticket Exchange</h2>", table(ex, [("match", "Match", "text"), ("comp", "Competition", "text"),
+                                                      ("ko", "Kick-off", "text"), ("exchange", "Exchange", "text"),
+                                                      ("watch", "Alerts", "text")])]
+    return "".join(out)
+
+
 def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 0.05) -> Path:
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +296,8 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
     if not cov.empty:
         cov["league"] = cov.league.map(ln)
         cov["season"] = cov.season.map(config.season_label)
+    if tk := tickets_section():
+        sections["LFC tickets"] = tk
     sections["Data"] = table(cov, [("league", "League", "text"), ("season", "Season", "text"),
                                    ("played", "Played", "int"), ("with_xg", "Real xG", "int"),
                                    ("xg_sources", "xG from", "text"), ("with_big_chances", "Big chances", "int"),

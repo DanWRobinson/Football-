@@ -1,0 +1,51 @@
+name: LFC ticket alerts
+
+# Checks liverpoolfc.com's public ticket pages and sends phone alerts (via ntfy) when a new sale
+# date appears, before each sale opens/closes, and when the Ticket Exchange opens for a watched
+# fixture. It never logs in or buys anything.
+on:
+  schedule:
+    - cron: "*/15 6-23 * * *"   # every 15 minutes, 06:00-23:59 UTC (GitHub may run a few minutes late)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lfc-tickets
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      # what's already been alerted, so nothing is sent twice
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/tickets
+            data/cache/www.liverpoolfc.com
+          key: lfc-tickets-${{ github.run_id }}
+          restore-keys: lfc-tickets-
+
+      - name: Check ticket pages
+        run: python -m footy tickets check
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            data/tickets
+            data/cache/www.liverpoolfc.com
+          key: lfc-tickets-${{ github.run_id }}

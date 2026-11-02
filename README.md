@@ -36,6 +36,52 @@ before, and cuts regular starters' start probability by 7% for that gameweek.
 
 Add or remove leagues in `config/leagues.yaml`.
 
+## LFC tickets (sale alerts, credits, Ticket Exchange)
+
+Helps you be **ready and quick** for Liverpool ticket sales. It only reads the club's public
+ticket pages. It never logs in, joins a queue, reserves or buys anything, so you always buy on
+liverpoolfc.com yourself. (Auto-buying bots break the club's terms and can get a membership
+cancelled. Reselling football tickets without the club's permission is a criminal offence in the UK.)
+
+| What | How |
+|---|---|
+| **Sale-date alerts** | Every 15 minutes (06:00–midnight UTC) a GitHub Action reads [ticket availability](https://www.liverpoolfc.com/tickets/tickets-availability), each fixture page and linked ticket news. It sends a phone alert when a new sale date appears, then reminders 2 days, 3 hours and 30 minutes before each registration window, ballot, guaranteed sale or members' sale opens or closes. |
+| **Credit tracker** | You keep your balances in `config/tickets.yaml`, copied from My Account, plus the games you've bought since. It shows your level (2026-27 Premier League home: **13+** guaranteed sale, **4–12** ballot for every game, **under 4** selected games only), how many games until the next level, and it **skips alerts for stages you don't qualify for**. |
+| **Ticket Exchange alerts** | Sends an alert when a watched fixture's page changes to show Exchange tickets available (home games by default). The Action checks every 15 minutes. For faster checks, run `python -m footy tickets watch` on a laptop or Codespace (every 3 minutes by default, never faster than every 2). |
+| **Calendar** | `lfc-tickets.ics` sits next to the daily page, and the **LFC tickets** tab has a subscribe link. Every sale date lands in your iPhone calendar with the same alarms. |
+
+### One-time setup (about 5 minutes)
+
+1. Install the free **ntfy** app ([iPhone](https://apps.apple.com/app/ntfy/id1625396347) / Android). Tap **+**
+   and subscribe to a topic name nobody would guess, e.g. `lfc-dan-7f3k9q`. Anyone who knows the
+   name can read the alerts, so treat it like a password.
+2. On GitHub: **Settings → Secrets and variables → Actions → New repository secret**. Name it
+   `NTFY_TOPIC`, with that topic name as the value.
+3. Edit `config/tickets.yaml`: copy your credit balances from My Account, and set `as_of` to today.
+   After each game you buy for, add a line under `games:`, or just update the balances.
+4. **Actions → LFC ticket alerts → Run workflow** to check it works. The first run records the
+   current sale dates without alerting, so you won't get a flood of messages.
+
+```bash
+python -m footy tickets check        # one pass: read pages, send due alerts
+python -m footy tickets list         # saved upcoming sale dates + whether you qualify
+python -m footy tickets credits      # balances, level, games to next level
+python -m footy tickets watch        # loop for Ticket Exchange alerts (default every 180s)
+python -m footy tickets test-alert   # check your phone gets ntfy alerts (NTFY_TOPIC in .env)
+python -m footy tickets doctor --url <page or saved .html>   # show exactly what a page parses to
+```
+
+**Caveats.**
+- The club writes sale details as prose, so the parser reads sentences: dates, times, "opens/closes",
+  "13+ credits" and so on. A redesign of the site can confuse it. `doctor` shows what it found,
+  and you get one alert if the site can't be read for about 2 hours.
+- Credit-earning rules change (a multi-year loyalty scheme is being phased in from 2026-27), so
+  My Account is always the source of truth. Update the thresholds in `config/tickets.yaml` if the
+  club changes them.
+- Ticket Exchange listings appear and go within minutes. The 15-minute Action is a safety net,
+  not a guarantee; `watch` gets you closer.
+- If your repo is public, so is `config/tickets.yaml`. It only holds credit counts.
+
 ## Data sources (pluggable)
 
 | Source | Cost | Gives | Leagues |
@@ -208,6 +254,7 @@ footy/sources/           one adapter per provider (football_data, understat, fot
 footy/pipeline.py        fetch -> reconcile names/dates -> SQLite (data/footy.db)
 footy/models/            data prep, ratings, probabilities, value, backtest, form, FPL, props
 app/dashboard.py         Streamlit UI
+footy/tickets/           LFC ticket sale alerts, credit tracker, Ticket Exchange alerts (config/tickets.yaml)
 footy/report.py          static phone/iPad page (published daily by .github/workflows/daily-report.yml)
 .devcontainer/           one-tap GitHub Codespaces setup
 tests/                   parser tests on sample payloads, model recovery tests, dashboard smoke tests

@@ -49,11 +49,19 @@ jobs:
           path: data
           key: footy-data-${{ github.run_id }}
 
+      # latest LFC ticket state from the "LFC ticket alerts" workflow (tab + calendar feed)
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/tickets
+          key: lfc-tickets-none
+          restore-keys: lfc-tickets-
+
       - name: Build report
         run: |
           python -m footy status || true
           python -m footy report --out site/index.html
           mkdir -p site/download && cp data/footy.db site/download/footy.db || true
+          python -m footy tickets ics --out site/lfc-tickets.ics || true
 
       - uses: actions/upload-pages-artifact@v3
         with:

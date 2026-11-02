@@ -1,0 +1,46 @@
+# Liverpool FC ticket helper settings - used by `python -m footy tickets ...`
+# This file is public if your repo is public. It only holds credit counts, never logins.
+
+membership: All Red Full          # Full or Light can use ticketing credits
+
+# 1) Your credit balances, copied from liverpoolfc.com > My Account > Ticketing / Credits.
+#    Update them (and `as_of`) whenever you check My Account; that's always the source of truth.
+credits:
+  as_of: 2026-11-02
+  pl_home: 0          # Premier League home
+  pl_away: 0
+  europe_home: 0      # Champions League / UEFA
+  europe_away: 0
+  cup_home: 0         # FA Cup / League Cup
+  cup_away: 0
+
+# 2) Games you've bought tickets for since `as_of`. Each adds `credits_per_game` to its category
+#    once the match date has passed. Categories: pl_home, pl_away, europe_home, europe_away,
+#    cup_home, cup_away.
+credits_per_game: 1
+games: []
+#  - {date: 2026-11-08, fixture: Liverpool v Aston Villa, category: pl_home}
+
+# 3) What each credit level gets you. 2026-27 Premier League home thresholds are 4+ and 13+
+#    (13+ = guaranteed sale, no registration; 4-12 = ballot for every game; under 4 = ballot for
+#    selected games). Check the club's sale announcements each half-season and edit if they change.
+thresholds:
+  pl_home:
+    - {min: 13, label: "Guaranteed sale - no registration needed"}
+    - {min: 4, label: "Ballot for every home game (register each window)"}
+    - {min: 0, label: "Ballot for selected home games only"}
+
+# 4) Alerts. Phone notifications go to the free ntfy app (set NTFY_TOPIC - see README).
+alerts:
+  new_sales: true            # tell me as soon as a new sale date appears
+  reminders: [2d, 3h, 30m]   # reminders before each sale opens/closes
+  only_eligible: true        # skip stages your credits don't qualify for
+  stages: [registration, ballot, ballot_results, guaranteed_sale, members_sale, exchange,
+           general_sale, sale, hospitality]
+
+# 5) Ticket Exchange alerts: which fixtures to check every run. "home", "away", "all", "none",
+#    or a list of opponents, e.g. [Arsenal, Manchester City].
+exchange:
+  watch: home
+  # Lower bound for `footy tickets watch --every`; please keep it polite.
+  min_interval_seconds: 120
