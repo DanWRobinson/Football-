@@ -212,3 +212,15 @@ def test_ics_alarms():
     out = alerts.ics([ev], {"alerts": {"reminders": ["3h", "30m"]}})
     assert "DTSTART:20261112T110000Z" in out and "TRIGGER:-PT180M" in out and "TRIGGER:-PT30M" in out
     assert all(len(line.encode()) <= 75 for line in out.split("\r\n"))
+
+
+def test_failed_alert_is_retried(tmp_path):
+    state = tmp_path / "state.json"
+    cfg = {"credits": {"pl_home": 5}, "alerts": {"reminders": ["2d"]}}
+    tries = []
+    quiet = lambda *a: None  # noqa: E731
+    alerts.check(cfg, at(2026, 11, 2, 12), state, fake_fetcher(PAGES), lambda *a, **k: None, log=quiet)
+    down = lambda title, *a, **k: tries.append(title) or "failed"  # noqa: E731
+    alerts.check(cfg, at(2026, 11, 4, 12), state, fake_fetcher(PAGES), down, log=quiet)
+    alerts.check(cfg, at(2026, 11, 4, 12, 15), state, fake_fetcher(PAGES), down, log=quiet)
+    assert len(tries) == 2 and tries[0] == tries[1]          # tried again, not marked as sent

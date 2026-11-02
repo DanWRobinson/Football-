@@ -238,9 +238,10 @@ def cmd_tickets(args):
         if args.show_text:
             print("\n--- page text ---\n" + text)
     elif act == "test-alert":
-        ok = alerts.notify("LFC ticket alerts are working", "You'll get sale reminders here.",
-                           lfc.LISTING_URL)
-        print("Sent to ntfy." if ok else "Not sent: set NTFY_TOPIC (see README, 'LFC tickets').")
+        res = alerts.notify("LFC ticket alerts are working", "You'll get sale reminders here.",
+                            lfc.LISTING_URL)
+        print({"sent": "Sent to ntfy.", "off": "Not sent: set NTFY_TOPIC (see README, 'LFC tickets').",
+               "failed": "Not sent: ntfy refused it (see above)."}[res])
     elif act == "ics":
         path = alerts.write_ics(alerts.events_from_state(alerts.load_state()), cfg, Path(args.out))
         print(f"Calendar written to {path}")

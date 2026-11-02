@@ -57,9 +57,14 @@ cancelled. Reselling football tickets without the club's permission is a crimina
    name can read the alerts, so treat it like a password.
 2. On GitHub: **Settings → Secrets and variables → Actions → New repository secret**. Name it
    `NTFY_TOPIC`, with that topic name as the value.
-3. Edit `config/tickets.yaml`: copy your credit balances from My Account, and set `as_of` to today.
+3. **Recommended:** create a free account at [ntfy.sh](https://ntfy.sh/signup). Then go to
+   **Account → Access tokens → Create access token**, and add the token as a second secret,
+   `NTFY_TOKEN`. Without an account, ntfy's free daily limit is counted per internet address, and
+   GitHub's servers share addresses with many other users, so alerts can be refused ("daily
+   message quota reached"). A refused alert is retried on the next check, not lost.
+4. Edit `config/tickets.yaml`: copy your credit balances from My Account, and set `as_of` to today.
    After each game you buy for, add a line under `games:`, or just update the balances.
-4. **Actions → LFC ticket alerts → Run workflow** to check it works. The first run records the
+5. **Actions → LFC ticket alerts → Run workflow** to check it works. The first run records the
    current sale dates without alerting, so you won't get a flood of messages.
 
 ```bash

@@ -46,12 +46,15 @@ def events_from_state(state: dict) -> list[SaleEvent]:
 # ---------------------------------------------------------------- notifications
 
 def notify(title: str, message: str, url: str | None = None, priority: str = "default",
-           tags: str = "soccer", log=print) -> bool:
-    """Send to ntfy (https://ntfy.sh) when NTFY_TOPIC is set; always print."""
+           tags: str = "soccer", log=print) -> str:
+    """Send to ntfy (https://ntfy.sh) when NTFY_TOPIC is set; always print.
+
+    Returns "sent", "off" (no NTFY_TOPIC) or "failed". A failed alert isn't marked as sent, so the
+    next check tries again."""
     log(f"[alert] {title}: {message}")
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     if not topic:
-        return False
+        return "off"
     server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
     body = {"topic": topic, "title": title, "message": message, "tags": tags.split(","),
             "priority": {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}.get(priority, 3)}
@@ -62,10 +65,20 @@ def notify(title: str, message: str, url: str | None = None, priority: str = "de
         headers["Authorization"] = f"Bearer {tok}"
     try:
         r = requests.post(server, json=body, headers=headers, timeout=15)   # JSON keeps emoji/UTF-8 safe
-        return r.ok
     except requests.RequestException as e:
         log(f"  ntfy failed: {e}")
-        return False
+        return "failed"
+    if r.ok:
+        return "sent"
+    try:
+        err = r.json().get("error", r.text)
+    except ValueError:
+        err = r.text
+    log(f"  ntfy refused it (HTTP {r.status_code}): {err[:200]}")
+    if r.status_code == 429 and not os.environ.get("NTFY_TOKEN"):
+        log("  Free ntfy limits are per internet address, shared on GitHub's servers. "
+            "Add an ntfy access token as NTFY_TOKEN (see README).")
+    return "failed"
 
 
 def parse_offset(s: str) -> dt.timedelta:
@@ -174,10 +187,11 @@ def check(cfg: dict | None = None, now: dt.datetime | None = None, state_path: P
             gkey = f"new|{e.stage}|{e.action}|{e.when.isoformat()}"
             if gkey in state.setdefault("sent", {}):
                 continue
-            state["sent"][gkey] = now.isoformat()
             note = " You qualify." if cr.eligibility(e, bal) == "eligible" else ""
-            send(f"New LFC sale date: {who}", f"{e.title} - {_fmt_when(e)}.{note}", e.url,
-                 "high", "soccer,calendar")
+            if send(f"New LFC sale date: {who}", f"{e.title} - {_fmt_when(e)}.{note}", e.url,
+                    "high", "soccer,calendar") == "failed":
+                continue
+            state["sent"][gkey] = now.isoformat()
             sent += 1
     if first_run and new:
         log(f"First run: recorded {len(new)} upcoming sale dates without alerting; reminders start now.")
@@ -199,8 +213,9 @@ def check(cfg: dict | None = None, now: dt.datetime | None = None, state_path: P
         left = e.when - now
         hrs = left.total_seconds() / 3600
         in_txt = f"in {int(left.total_seconds() // 60)} min" if hrs < 1.5 else f"in {hrs:.0f}h" if hrs < 36 else f"in {round(hrs / 24)} days"
-        send(f"LFC: {e.title} {in_txt}", f"{who} - {_fmt_when(e)}. Be logged in early.", e.url,
-             "urgent" if hrs < 1.5 else "high", "alarm_clock")
+        if send(f"LFC: {e.title} {in_txt}", f"{who} - {_fmt_when(e)}. Be logged in early.", e.url,
+                "urgent" if hrs < 1.5 else "high", "alarm_clock") == "failed":
+            continue
         for o2 in due:
             sent_keys[f"{gid}|{int(o2.total_seconds())}"] = now.isoformat()
         sent += 1
@@ -211,8 +226,9 @@ def check(cfg: dict | None = None, now: dt.datetime | None = None, state_path: P
         old = ex.get(f.slug)
         if f.slug in watch_slugs and f.exchange == "open" and old != "open" and not first_run and \
                 "exchange" in (acfg.get("stages") or ["exchange"]):
-            send(f"Ticket Exchange open: {f.name}", f"{f.competition}, {f.ko_text}. "
-                 "Tickets on the Exchange go fast.", f.url, "urgent", "rotating_light")
+            if send(f"Ticket Exchange open: {f.name}", f"{f.competition}, {f.ko_text}. "
+                    "Tickets on the Exchange go fast.", f.url, "urgent", "rotating_light") == "failed":
+                continue          # leave the old status so the next check alerts again
             sent += 1
         ex[f.slug] = f.exchange
 
