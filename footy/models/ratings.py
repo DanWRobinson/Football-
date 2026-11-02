@@ -194,6 +194,12 @@ def fit_all(frame: pd.DataFrame, leagues: list[str], as_of=None, settings=None,
                          frame[["league", "season", "away"]].rename(columns={"away": "team"})]).drop_duplicates()
     out = {}
     season = config.current_season(pd.Timestamp(as_of).date() if as_of is not None else None)
+    cfg = config.leagues()
+    europe = [lg for lg in leagues if lg in cfg and cfg[lg].is_europe]
+    leagues = [lg for lg in leagues if lg not in europe]
+    if europe:  # European ties need every domestic league's ratings, not just the requested ones
+        leagues = list(dict.fromkeys(leagues + [k for k, v in cfg.items()
+                                                if not v.is_europe and k in set(frame.league)]))
     for lg in leagues:
         cur = frame[(frame.league == lg) & (frame.season == season)]
         teams_now = sorted(set(cur.home) | set(cur.away))
@@ -204,4 +210,13 @@ def fit_all(frame: pd.DataFrame, leagues: list[str], as_of=None, settings=None,
             out[lg] = fit(frame, lg, as_of, settings, history, teams_now, e)
         except ValueError:
             continue
+    if europe:
+        from .europe import fit_europe
+        elo_all = dict(zip(elo.team, elo.elo)) if elo is not None and not elo.empty else {}
+        domestic = dict(out)
+        for comp in europe:
+            try:
+                out[comp] = fit_europe(frame, comp, domestic, elo_all, as_of, settings)
+            except ValueError:
+                continue
     return out

@@ -41,7 +41,12 @@ class League:
     fotmob: int | None = None
     api_football: int | None = None
     fpl: bool = False
+    kind: str = "league"          # 'league' (domestic) | 'europe' (UEFA club competitions)
     xg_sources: list[str] = field(default_factory=list)
+
+    @property
+    def is_europe(self) -> bool:
+        return self.kind == "europe"
 
     @property
     def label(self) -> str:
@@ -88,7 +93,7 @@ def season_label(season: int) -> str:
 
 
 def resolve_leagues(spec: str | list[str] | None) -> list[str]:
-    """'all', 'england', 'big5', or a comma list of keys."""
+    """'all', 'england', 'big5', 'europe', 'domestic', or a comma list of keys."""
     allk = list(leagues())
     if spec is None or spec == "all":
         return allk
@@ -103,6 +108,10 @@ def resolve_leagues(spec: str | list[str] | None) -> list[str]:
             out += [k for k, v in leagues().items() if v.country == "England"]
         elif s_low == "big5":
             out += ["E0", "SP1", "I1", "D1", "F1"]
+        elif s_low == "europe":
+            out += [k for k, v in leagues().items() if v.is_europe]
+        elif s_low == "domestic":
+            out += [k for k, v in leagues().items() if not v.is_europe]
         else:
             league(s.upper())
             out.append(s.upper())

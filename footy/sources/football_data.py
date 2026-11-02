@@ -100,6 +100,9 @@ def parse_csv(text: str, lg: League, season: int | None, division: str | None = 
 class FootballData(Source):
     name = "football_data"
 
+    def supports(self, lg: League) -> bool:
+        return not lg.is_europe   # no UEFA competition files
+
     def matches(self, lg: League, season: int) -> list[MatchRecord]:
         text = get(f"{BASE}/mmz4281/{season_code(season)}/{lg.key}.csv", ttl=6 * 3600)
         return parse_csv(text, lg, season)

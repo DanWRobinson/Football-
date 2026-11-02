@@ -20,6 +20,19 @@ and gives you a dashboard for:
 | England | Premier League, Championship, League One, League Two, National League |
 | Big 5 | La Liga, Serie A, Bundesliga, Ligue 1 |
 | Next tier | Eredivisie, Primeira Liga, Belgian Pro League, Scottish Premiership |
+| Europe | Champions League, Europa League, Conference League |
+
+**European competitions.** FotMob supplies their fixtures, results, xG and big chances; there are
+no free odds, so type Bet365's price into the dashboard's **Match explorer** to see your edge. The
+two teams usually come from different leagues, so every club is put on one common scale:
+
+- **Clubs from the 13 leagues:** their domestic rating plus a league-strength offset. The offset
+  starts from the league's average ClubElo and is corrected by actual European results.
+- **Other clubs** (Galatasaray, Red Star and so on): their ClubElo rating.
+
+The fitted league strengths appear on the League tables page when you pick a European competition.
+The **FPL planner** flags (★) gameweeks where a Premier League team played in Europe 1–4 days
+before, and cuts regular starters' start probability by 7% for that gameweek.
 
 Add or remove leagues in `config/leagues.yaml`.
 
@@ -103,6 +116,7 @@ Narrower updates:
 
 ```bash
 python -m footy update -l england          # just the English pyramid
+python -m footy update -l europe           # Champions/Europa/Conference League
 python -m footy update -l big5 -s 2026     # big 5, current season only
 python -m footy update -l E0,E1 --sources football_data,understat
 python -m footy fpl                        # refresh FPL prices/injuries only

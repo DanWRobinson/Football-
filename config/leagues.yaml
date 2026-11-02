@@ -109,6 +109,35 @@ leagues:
     api_football: 179
     xg_sources: [fotmob, api_football]
 
+  # ---------------- European competitions ----------------
+  # No football-data.co.uk feed (so no free odds): FotMob supplies fixtures, results, xG and
+  # big chances. Team strength comes from each club's domestic ratings + a league-strength
+  # offset calibrated on European results, or ClubElo for clubs outside the 13 leagues.
+  - key: UCL
+    name: Champions League
+    country: Europe
+    tier: 0
+    kind: europe
+    fotmob: 42
+    api_football: 2
+    xg_sources: [fotmob, api_football]
+  - key: UEL
+    name: Europa League
+    country: Europe
+    tier: 0
+    kind: europe
+    fotmob: 73
+    api_football: 3
+    xg_sources: [fotmob, api_football]
+  - key: UECL
+    name: Conference League
+    country: Europe
+    tier: 0
+    kind: europe
+    fotmob: 10216
+    api_football: 848
+    xg_sources: [fotmob, api_football]
+
 # Model settings (all overridable from the CLI / dashboard)
 model:
   half_life_days: 240        # time-decay of old matches in team ratings

@@ -24,6 +24,14 @@ def _known_teams(con, league: str, season: int) -> list[str]:
     return [r[0] for r in rows]
 
 
+def _domestic_teams(con, seasons: list[int]) -> list[str]:
+    europe = [k for k, v in config.leagues().items() if v.is_europe]
+    q = (f"SELECT DISTINCT home FROM matches WHERE season IN ({','.join('?' * len(seasons))}) "
+         f"AND league NOT IN ({','.join('?' * len(europe))})") if europe else \
+        f"SELECT DISTINCT home FROM matches WHERE season IN ({','.join('?' * len(seasons))})"
+    return [r[0] for r in con.execute(q, [*seasons, *europe])]
+
+
 def _resolve(name: str, known: list[str]) -> str:
     if not known:
         return canonical(name)
@@ -40,9 +48,13 @@ def _find_match(con, league, season, home, away, date: str, window: int = 3) -> 
     return row[0] if row else None
 
 
-def store_matches(con, source: str, recs: list[MatchRecord], backbone: bool) -> dict:
+def store_matches(con, source: str, recs: list[MatchRecord], backbone: bool,
+                  extra_known: list[str] | None = None) -> dict:
     """Write records. Backbone sources create rows; others attach to existing rows
-    (creating rows only for fixtures, or when the league-season has no backbone)."""
+    (creating rows only for fixtures, or when the league-season has no backbone).
+
+    extra_known: team keys from other competitions to resolve names against (used for
+    European games so 'Sporting CP' maps onto the Primeira Liga team 'sp lisbon')."""
     stats = {"rows": 0, "attached": 0, "created": 0, "unmatched": []}
     known_cache: dict[tuple, list[str]] = {}
     for r in recs:
@@ -51,6 +63,8 @@ def store_matches(con, source: str, recs: list[MatchRecord], backbone: bool) -> 
         kk = (r.league, r.season)
         if kk not in known_cache:
             known_cache[kk] = _known_teams(con, *kk)
+            if extra_known:
+                known_cache[kk] = list(dict.fromkeys(known_cache[kk] + list(extra_known)))
         known = known_cache[kk]
         hk, ak = _resolve(r.home, known), _resolve(r.away, known)
         mid = _find_match(con, r.league, r.season, hk, ak, r.date, window=0 if backbone else 3)
@@ -144,10 +158,15 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
     cfg = config.leagues()
     sources = sources or ["football_data", "understat", "fotmob", "api_football"]
     with db.session() as con:
+        # domestic leagues first, so European games can be linked to domestic teams
+        leagues = sorted(leagues, key=lambda k: cfg[k].is_europe)
         for key in leagues:
             lg = cfg[key]
             order = ["football_data"] + [s for s in lg.xg_sources if s in sources]
             order = [s for s in dict.fromkeys(order) if s in sources]
+            # the backbone is football-data where it exists, otherwise the first usable xG source
+            primary = next((s for s in order if REGISTRY[s]().supports(lg) and REGISTRY[s]().available()), None)
+            extra = _domestic_teams(con, [max(seasons) - 1, max(seasons)]) if lg.is_europe else None
             for sname in order:
                 src = REGISTRY[sname]()
                 if not src.available():
@@ -157,11 +176,11 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
                     continue
                 if hasattr(src, "skip_ids"):
                     src.skip_ids = _skip_ids(con, sname)
-                backbone = sname == "football_data"
+                backbone = sname == primary
                 for season in seasons:
                     try:
                         recs = src.matches(lg, season)
-                        st = store_matches(con, sname, recs, backbone=backbone)
+                        st = store_matches(con, sname, recs, backbone=backbone, extra_known=extra)
                         msg = (f"{len(recs)} matches, {st['attached']} attached, {st['created']} new, "
                                f"{len(st['unmatched'])} unmatched")
                         if st["unmatched"]:
@@ -178,7 +197,7 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
                         echo(f"  [{key} {config.season_label(season)}] {sname}: FAILED {e}")
                         log.debug(traceback.format_exc())
                     con.commit()
-                if backbone:
+                if sname == "football_data":
                     try:
                         fx = src.fixtures(lg)
                         st = store_matches(con, sname, fx, backbone=True)
@@ -190,7 +209,7 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
                         fx = src.fixtures(lg) if sname != "understat" else []
                         if fx:
                             con.execute("DELETE FROM availability WHERE league=? AND source=?", (key, sname))
-                            store_matches(con, sname, fx, backbone=False)
+                            store_matches(con, sname, fx, backbone=backbone, extra_known=extra)
                             n_out = sum(len(r.unavailable) for r in fx)
                             if n_out:
                                 echo(f"  [{key}] {sname}: team news - {n_out} players out/doubtful")
@@ -223,6 +242,21 @@ def update_elo(echo=print, date: dt.date | None = None) -> None:
                 team = best_match(r.club, known)
                 rows.append((date_s, r.club, r.country, int(r.level), float(r.elo), key if team else None, team))
                 matched += bool(team)
+        # European competitions: clubs from outside our 13 leagues get matched against all of ClubElo
+        domestic = {r[6] for r in rows if r[6]}
+        cands = {canonical(c): (c, ctry, lvl, e) for c, ctry, lvl, e in
+                 zip(df.club, df.country, df.level, df.elo)}
+        for key, lg in cfg.items():
+            if not lg.is_europe:
+                continue
+            for team in _known_teams(con, key, config.current_season()):
+                if team in domestic:
+                    continue
+                hit = best_match(team, list(cands))
+                if hit:
+                    c, ctry, lvl, e = cands[hit]
+                    rows.append((date_s, c, ctry, int(lvl) if pd.notna(lvl) else 0, float(e), key, team))
+                    matched += 1
         con.execute("DELETE FROM elo WHERE date=?", (date_s,))
         con.executemany("INSERT OR REPLACE INTO elo VALUES(?,?,?,?,?,?,?)", rows)
     echo(f"  ClubElo: {matched} clubs matched to league teams")
@@ -301,4 +335,6 @@ def coverage(con) -> pd.DataFrame:
             out = out.merge(srcs.rename("xg_sources"), on=["league", "season"], how="left")
     o = db.read_sql(con, "SELECT DISTINCT match_id FROM odds").merge(m, on="match_id")
     out = out.merge(o.groupby(["league", "season"]).size().rename("with_odds"), on=["league", "season"], how="left")
+    if "xg_sources" in out:
+        out["xg_sources"] = out.xg_sources.fillna("")
     return out.fillna(0)

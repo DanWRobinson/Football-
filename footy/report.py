@@ -132,7 +132,9 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
         p = pred[pred.league == k] if not pred.empty else pred
         if p.empty:
             continue
-        fx_html.append(f"<details open><summary>{ln(k)} · {len(p)} matches</summary>" + table(
+        euro_note = (" <span class='sub'>(no free odds - type Bet365's price into the dashboard's Match "
+                     "explorer)</span>") if lgs.get(k) and lgs[k].is_europe else ""
+        fx_html.append(f"<details open><summary>{ln(k)} · {len(p)} matches{euro_note}</summary>" + table(
             p, [("day", "Date", "text"), ("match", "Match", "text"), ("xg_home", "xG H", "f2"),
                 ("xg_away", "xG A", "f2"), ("H", "Home", "pct"), ("D", "Draw", "pct"), ("A", "Away", "pct"),
                 ("mkt_H", "Mkt H", "pct"), ("mkt_D", "Mkt D", "pct"), ("mkt_A", "Mkt A", "pct"),
@@ -177,7 +179,18 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
     reg = pd.DataFrame(reg_rows)
     if not reg.empty:
         reg = reg.reindex(reg.luck.abs().sort_values(ascending=False).index)
-    sections["Tables"] = ('<p class="note">Actual table vs expected (xPts = points the chances deserved). '
+    ls_html = []
+    for k in order:
+        if lgs.get(k) and lgs[k].is_europe and k in ratings:
+            ls = getattr(ratings[k], "league_strength", None)
+            if ls is not None and not ls.empty:
+                ls_html.append(f"<details><summary>League strength - {ln(k)}</summary>" + table(
+                    ls.assign(league=ls.league.map(ln)),
+                    [("league", "League", "text"), ("strength", "Strength", "f2"),
+                     ("elo_prior", "From Elo", "f2"), ("from_results", "Adj. from results", "f2")]) +
+                    "</details>")
+                break
+    sections["Tables"] = ("".join(ls_html) + '<p class="note">Actual table vs expected (xPts = points the chances deserved). '
                           "Pts−xPts and G−xG show who's riding luck.</p>" + "".join(tb_html))
     sections["Regression"] = ('<p class="note">Teams whose points per game differ from their xPts by more than '
                               "0.35 - classic candidates to oppose or back.</p>" + table(
@@ -206,11 +219,13 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                          "</details>")
             if not tick.empty:
                 tick["team"] = tick.team.map(nm)
-                tick["opp"] = tick.opponent.map(nm).str[:3].str.upper() + np.where(tick.home, "(H)", "(a)")
+                tick["opp"] = (tick.opponent.map(nm).str[:3].str.upper() + np.where(tick.home, "(H)", "(a)")
+                               + np.where(tick.after_europe, "★", ""))
                 agg = tick.groupby("team").agg(xg=("xg_for", "sum"), cs=("p_cs", "sum")).reset_index()
                 fx = tick.sort_values("gw").groupby("team").opp.agg(" ".join)
                 agg["fixtures"] = agg.team.map(fx)
-                parts.append("<h2>Fixture ticker (next 5 GWs)</h2>" + table(
+                parts.append("<h2>Fixture ticker (next 5 GWs)</h2><p class='note'>★ = plays in Europe "
+                             "1-4 days before (rotation risk).</p>" + table(
                     agg.sort_values("xg", ascending=False),
                     [("team", "Team", "text"), ("fixtures", "Fixtures", "text"),
                      ("xg", "Exp. goals", "f1"), ("cs", "Exp. clean sheets", "f1")]))

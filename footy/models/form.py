@@ -84,7 +84,7 @@ def regression_flags(table: pd.DataFrame, min_games: int = 6) -> pd.DataFrame:
     """Teams whose results most diverge from underlying numbers."""
     t = table[table.P >= min_games].copy()
     if t.empty:
-        return t
+        return t.assign(luck_score=pd.Series(dtype=float), verdict=pd.Series(dtype=str))
     t["luck_score"] = (t["Pts-xPts"] / t.P).round(2)
     t["verdict"] = np.select(
         [t.luck_score > 0.35, t.luck_score < -0.35],

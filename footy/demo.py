@@ -22,8 +22,13 @@ LAST = ["Archer", "Bishop", "Carter", "Dawson", "Ellis", "Foster", "Grant", "Hug
         "Knight", "Lowe", "Mason", "Norris", "Okafor", "Price", "Reid", "Shaw", "Turner", "Walsh"]
 
 
-def _teams(rng, n, offset):
-    return [f"{PREFIX[(i + offset) % len(PREFIX)]} {SUFFIX[(i * 3 + offset) % len(SUFFIX)]}" for i in range(n)]
+def _teams(rng, n, offset, shift=0):
+    return [f"{PREFIX[(i + offset) % len(PREFIX)]} {SUFFIX[(i * 3 + offset + shift) % len(SUFFIX)]}"
+            for i in range(n)]
+
+
+# true league strength on a common scale (log goals); E1 is genuinely weaker than E0
+LEAGUE_OFFSET = {"E0": 0.0, "E1": -0.35}
 
 
 def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
@@ -35,8 +40,9 @@ def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
               "fpl_teams", "fpl_events", "source_map", "source_log", "elo", "availability", "fpl_history"):
         con.execute(f"DELETE FROM {t}")
 
+    global_strength: dict[str, tuple[float, float]] = {}
     for league, n, offset, real_xg in (("E0", 20, 0, True), ("E1", 24, 4, False)):
-        teams = _teams(rng, n, offset)
+        teams = _teams(rng, n, offset, shift=0 if league == "E0" else 1)
         att = rng.normal(0, 0.22, n)
         dfn = rng.normal(0, 0.22, n)
         mu, ha = np.log(1.35), 0.22
@@ -46,7 +52,10 @@ def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
         for ti, t in enumerate(teams):   # Elo snapshot consistent with true strength (+ noise)
             con.execute("INSERT OR REPLACE INTO elo VALUES(?,?,?,?,?,?,?)",
                         (today.isoformat(), t, "ENG", 1 if league == "E0" else 2,
-                         1700 + (att[ti] - dfn[ti]) / 0.003 + rng.normal(0, 25), league, _c(t)))
+                         1700 + (att[ti] - dfn[ti] + LEAGUE_OFFSET[league]) / 0.003 + rng.normal(0, 25),
+                         league, _c(t)))
+            off = LEAGUE_OFFSET[league]
+            global_strength[t] = (att[ti] + off / 2, dfn[ti] - off / 2)
         for ssn in (season - 1, season):
             start = dt.date(ssn, 8, 9)
             pairs = [(i, j) for i in range(n) for j in range(n) if i != j]
@@ -156,6 +165,40 @@ def build(path="data/demo.db", seed=7, today: dt.date | None = None) -> str:
             con.executemany("INSERT INTO fpl_events VALUES(?,?,?,?,?,?)",
                             [(g, f"Gameweek {g}", None, int(g < nxt), int(g == nxt - 1), int(g == nxt))
                              for g in range(1, max(max_gw, nxt) + 1)])
+    _european_cup(con, rng, global_strength, season, today)
     con.commit()
     con.close()
     return path
+
+
+def _european_cup(con, rng, strength, season, today):
+    """Fictional 'UCL': 10 E0 + 10 E1 clubs + 4 outsiders, 8 games each per season, Tue/Wed."""
+    from .names import canonical
+    e0 = [t for t in strength][:10]
+    e1 = [t for t in strength][20:30]
+    outsiders = {"Nordvik FK": 0.1, "Sarnia SC": -0.1, "Dravograd": -0.25, "Kolvara": 0.0}
+    for t, sv in outsiders.items():
+        strength[t] = (sv / 2, -sv / 2)
+        con.execute("INSERT OR REPLACE INTO elo VALUES(?,?,?,?,?,?,?)",
+                    (today.isoformat(), t, "XXX", 1, 1700 + sv / 0.003, "UCL", canonical(t)))
+    clubs = e0 + e1 + list(outsiders)
+    mu, ha = np.log(1.3), 0.15
+    for ssn in (season - 1, season):
+        for rnd in range(8):
+            order = list(rng.permutation(clubs))
+            date = dt.date(ssn, 9, 16) + dt.timedelta(days=14 * rnd + int(rng.integers(0, 2)))
+            if date > today + dt.timedelta(days=30):
+                continue
+            for h, a in zip(order[::2], order[1::2]):
+                (ah, dh), (aa, da) = strength[h], strength[a]
+                lh, la = np.exp(mu + ha + ah + da), np.exp(mu + aa + dh)
+                played = date < today
+                mid = db.upsert_match(con, league="UCL", season=ssn, date=date.isoformat(), home=h, away=a,
+                                      home_goals=int(rng.poisson(lh)) if played else None,
+                                      away_goals=int(rng.poisson(la)) if played else None, kickoff="20:00")
+                if played:
+                    db.put_stats(con, mid, "fotmob",
+                                 {"xg": round(lh * rng.lognormal(0, 0.3), 2), "big_chances": int(rng.poisson(lh * 1.6)),
+                                  "yellow": int(rng.poisson(1.7))},
+                                 {"xg": round(la * rng.lognormal(0, 0.3), 2), "big_chances": int(rng.poisson(la * 1.6)),
+                                  "yellow": int(rng.poisson(1.9))})

@@ -129,6 +129,18 @@ elif page == "League tables":
     with c4:
         last_n = st.selectbox("Games", [None, 5, 10], format_func=lambda x: "All" if x is None else f"Last {x}")
     f = frame[(frame.league == lk) & (frame.season == ssn)]
+    if LEAGUES.get(lk) and LEAGUES[lk].is_europe and lk in ratings:
+        ls = getattr(ratings[lk], "league_strength", None)
+        if ls is not None and not ls.empty:
+            st.subheader("League strength (from ClubElo + European results)")
+            st.caption("Log goal-strength offset vs the average club in European competition: +0.20 means a "
+                       "league-average team scores ~10% more and concedes ~10% fewer than a European-average one.")
+            st.dataframe(ls.assign(league=ls.league.map(lg_name)).round(3), hide_index=True)
+        st.subheader("Model ratings")
+        rtab = ratings[lk].table()
+        rtab["team"] = rtab.team.map(nm)
+        st.dataframe(rtab.round(2), hide_index=True, use_container_width=True)
+        st.subheader("Results table")
     t = form.league_table(f, venue if venue != "all" else None, last_n)
     if t.empty:
         st.info("No played matches yet.")
@@ -310,7 +322,7 @@ elif page == "FPL planner":
     view = xp[xp.position.isin(pos) & (xp.price <= max_price) & (xp.start_rate >= min_start)]
     gw_cols = [c for c in xp.columns if c.startswith("GW")]
     cols = ["player", "team", "position", "price", "selected_pct", "start_rate", "xg90", "xa90", *gw_cols,
-            "xPts_next", f"xPts_{horizon}gw", "xPts_per_m", "total_points", "news"]
+            "xPts_next", f"xPts_{horizon}gw", "xPts_per_m", "europe_gws", "total_points", "news"]
     st.dataframe(view[cols].round(2), hide_index=True, use_container_width=True, height=600)
     st.caption("xPts built from FPL's own xG/xA per 90 (shrunk toward positional priors), scaled by each fixture's "
                "expected goals from the team model; clean sheets from the opponent's expected goals; "
@@ -319,7 +331,8 @@ elif page == "FPL planner":
         st.subheader("Fixture ticker")
         metric = st.radio("Show", ["Attack (team expected goals)", "Clean sheet probability"], horizontal=True)
         col = "xg_for" if metric.startswith("Attack") else "p_cs"
-        tick["label"] = tick.opponent.map(nm).str[:3].str.upper() + np.where(tick.home, " (H)", " (a)")
+        tick["label"] = (tick.opponent.map(nm).str[:3].str.upper() + np.where(tick.home, " (H)", " (a)")
+                         + np.where(tick.after_europe, " ★", ""))
         tick["team"] = tick.team.map(nm)
         piv = tick.pivot_table(index="team", columns="gw", values=col, aggfunc="sum")
         lab = tick.pivot_table(index="team", columns="gw", values="label", aggfunc=lambda x: " + ".join(x))
@@ -329,6 +342,8 @@ elif page == "FPL planner":
                                    text=lab.values, texttemplate="%{text}<br>%{z:.2f}", colorscale="RdYlGn"))
         fig.update_layout(height=40 + 28 * len(piv), yaxis=dict(autorange="reversed"))
         st.plotly_chart(fig, use_container_width=True)
+        st.caption("★ = team plays in Europe 1-4 days before - rotation risk (regular starters' start "
+                   "probability cut by 7% in that gameweek). `europe_gws` in the table counts these.")
 
 elif page == "Players & props":
     st.header("Players & props")

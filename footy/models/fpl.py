@@ -16,6 +16,7 @@ from .. import db
 from .ratings import Ratings
 
 GOAL_PTS = {"GK": 10, "DEF": 6, "MID": 5, "FWD": 4}
+EUROPE_ROTATION = 0.93   # start probability multiplier for a GW straight after a European game
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
 DC_THRESHOLD = {"GK": None, "DEF": 10, "MID": 12, "FWD": 12}
 # prior per-90 rates used to shrink small samples (pseudo-minutes)
@@ -42,6 +43,21 @@ def next_event(events: pd.DataFrame) -> int | None:
 def team_games_played(fixtures: pd.DataFrame) -> dict[str, int]:
     f = fixtures[fixtures.finished == 1]
     return pd.concat([f.team_h, f.team_a]).value_counts().to_dict()
+
+
+def europe_dates(con) -> dict[str, list]:
+    """team -> dates of its European matches (any UEFA competition in the DB)."""
+    from .. import config
+    keys = [k for k, v in config.leagues().items() if v.is_europe]
+    if not keys:
+        return {}
+    m = db.read_sql(con, f"SELECT date, home, away FROM matches WHERE league IN ({','.join('?' * len(keys))})", keys)
+    out: dict[str, list] = {}
+    for _, r in m.iterrows():
+        d = pd.Timestamp(r.date)
+        out.setdefault(r.home, []).append(d)
+        out.setdefault(r.away, []).append(d)
+    return out
 
 
 def recent_starts(con, fixtures: pd.DataFrame, last_n: int = 6) -> pd.DataFrame:
@@ -80,12 +96,23 @@ def expected_points(con, ratings: Ratings, horizon: int = 5, start_gw: int | Non
     avg_for = {t: np.exp(ratings.mu + ratings.att.get(t, -0.15) + ratings.home_adv / 2) for t in ratings.teams}
     avg_against = {t: np.exp(ratings.mu + ratings.dfn.get(t, 0.15) + ratings.home_adv / 2) for t in ratings.teams}
 
-    # per-team fixture list: (gw, opponent, home?, lam_for, lam_against)
+    euro = europe_dates(con)
+
+    def after_europe(team, kickoff) -> bool:
+        k = pd.to_datetime(kickoff, errors="coerce", utc=True)
+        if pd.isna(k):
+            return False
+        k = k.tz_localize(None).normalize()
+        return any(pd.Timedelta(days=1) <= k - d <= pd.Timedelta(days=4) for d in euro.get(team, []))
+
+    # per-team fixture list: (gw, opponent, home?, lam_for, lam_against, after_europe)
     team_fx: dict[str, list] = {}
     for _, f in up.iterrows():
         lh, la = ratings.lambdas(f.team_h, f.team_a)
-        team_fx.setdefault(f.team_h, []).append((int(f.event), f.team_a, True, lh, la))
-        team_fx.setdefault(f.team_a, []).append((int(f.event), f.team_h, False, la, lh))
+        team_fx.setdefault(f.team_h, []).append((int(f.event), f.team_a, True, lh, la,
+                                                 after_europe(f.team_h, f.kickoff)))
+        team_fx.setdefault(f.team_a, []).append((int(f.event), f.team_h, False, la, lh,
+                                                 after_europe(f.team_a, f.kickoff)))
 
     rows = []
     for _, p in players.iterrows():
@@ -118,32 +145,36 @@ def expected_points(con, ratings: Ratings, horizon: int = 5, start_gw: int | Non
         cards90 = ((p.yellow or 0) + 3 * (p.red or 0)) / max(mins, 1) * 90 if mins >= 180 else 0.1
 
         per_gw = {gw: 0.0 for gw in gws}
-        for gw, opp, home, lam_for, lam_against in team_fx.get(p.team, []):
+        n_euro = 0
+        for gw, opp, home, lam_for, lam_against, euro_before in team_fx.get(p.team, []):
             f_att = lam_for / avg_for.get(p.team, lam_for)
             f_def = lam_against / avg_against.get(p.team, lam_against)
-            m90 = exp_mins / 90
+            rot = EUROPE_ROTATION if euro_before and start_rate > 0.5 else 1.0
+            n_euro += bool(euro_before)
+            m90 = exp_mins * rot / 90
             e_goals = xg90 * f_att * m90
             e_ast = xa90 * f_att * m90
             # clean sheet: opponent scores 0 while he's on (60+ mins needed)
             p_cs = np.exp(-lam_against)
             e_gc_pen = sum(poisson.pmf(k, lam_against) * (k // 2) for k in range(1, 11))
-            pts = p60 * 2 + (p_any - p60) * 1
+            p60_g, p_any_g = p60 * rot, p_any * rot
+            pts = p60_g * 2 + (p_any_g - p60_g) * 1
             pts += e_goals * GOAL_PTS.get(pos, 4) + e_ast * 3
-            pts += p60 * p_cs * CS_PTS.get(pos, 0)
+            pts += p60_g * p_cs * CS_PTS.get(pos, 0)
             if pos in ("GK", "DEF"):
-                pts -= p60 * e_gc_pen
+                pts -= p60_g * e_gc_pen
             if pos == "GK":
                 pts += m90 * (saves90 * f_def) / 3
             thr = DC_THRESHOLD.get(pos)
             if thr and dc90 > 0:
-                pts += p_start * 2 * (1 - poisson.cdf(thr - 1, dc90 * min(mins_per_start, 90) / 90))
+                pts += p_start * rot * 2 * (1 - poisson.cdf(thr - 1, dc90 * min(mins_per_start, 90) / 90))
             pts += m90 * bonus90 * (0.5 + 0.5 * f_att if pos in ("MID", "FWD") else 0.5 + 0.5 / max(f_def, 0.3))
             pts -= m90 * cards90
             per_gw[gw] += pts
         row = dict(id=p.id, player=p.web_name, team=p.team, position=pos, price=p.price,
                    selected_pct=p.selected_pct, status=p.status, chance_next=p.chance_next, news=p.news,
                    minutes=mins, start_rate=start_rate, xg90=xg90, xa90=xa90,
-                   fpl_xg=p.xg, fpl_xa=p.xa, total_points=p.total_points)
+                   fpl_xg=p.xg, fpl_xa=p.xa, total_points=p.total_points, europe_gws=n_euro)
         for gw in gws:
             row[f"GW{gw}"] = per_gw[gw]
         row["xPts_next"] = per_gw[gws[0]]
@@ -155,6 +186,7 @@ def expected_points(con, ratings: Ratings, horizon: int = 5, start_gw: int | Non
     # fixture ticker: per team per GW, attack lambda and CS probability
     tick = []
     for t, lst in team_fx.items():
-        for gw, opp, home, lf, la in lst:
-            tick.append(dict(team=t, gw=gw, opponent=opp, home=home, xg_for=lf, xg_against=la, p_cs=np.exp(-la)))
+        for gw, opp, home, lf, la, eu in lst:
+            tick.append(dict(team=t, gw=gw, opponent=opp, home=home, xg_for=lf, xg_against=la, p_cs=np.exp(-la),
+                             after_europe=eu))
     return xp, pd.DataFrame(tick)
