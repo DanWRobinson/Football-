@@ -1,0 +1,13 @@
+{"general": {"matchId": 555}, "content": {"stats": {"Periods": {"All": {"stats": [
+  {"title": "Top stats", "key": "top_stats", "stats": [
+    {"title": "Ball possession", "key": "BallPossesion", "stats": [58, 42], "type": "graph"},
+    {"title": "Expected goals (xG)", "key": "expected_goals", "stats": ["1.84", "0.67"], "type": "text"},
+    {"title": "Total shots", "key": "total_shots", "stats": [17, 8]},
+    {"title": "Big chances", "key": "big_chance", "stats": [3, 1]},
+    {"title": "Big chances missed", "key": "big_chance_missed_title", "stats": [2, 1]}]},
+  {"title": "Expected goals (xG)", "key": "expected_goals", "stats": [
+    {"title": "xG on target (xGOT)", "key": "expected_goals_on_target", "stats": ["1.95", "0.31"]}]},
+  {"title": "Shots", "key": "shots", "stats": [
+    {"title": "Shots on target", "key": "ShotsOnTarget", "stats": [7, 2]},
+    {"title": "Corners", "key": "corners", "stats": [6, 3]}]}
+]}}}}}

@@ -1,0 +1,120 @@
+# League catalogue. `key` is the football-data.co.uk division code and is used as the
+# league id everywhere in the tool. Source ids map each league onto the other providers.
+# tier = position in the national pyramid (used for promoted/relegated priors).
+#
+# xg_sources: order of preference for match xG. Anything missing falls back to a
+# shots-based proxy xG calibrated on leagues where real xG exists.
+
+leagues:
+  # ---------------- England ----------------
+  - key: E0
+    name: Premier League
+    country: England
+    tier: 1
+    understat: EPL
+    fotmob: 47
+    api_football: 39
+    fpl: true
+    xg_sources: [understat, fotmob, api_football]
+  - key: E1
+    name: Championship
+    country: England
+    tier: 2
+    fotmob: 48
+    api_football: 40
+    xg_sources: [fotmob, api_football]
+  - key: E2
+    name: League One
+    country: England
+    tier: 3
+    fotmob: 108
+    api_football: 41
+    xg_sources: [fotmob, api_football]
+  - key: E3
+    name: League Two
+    country: England
+    tier: 4
+    fotmob: 109
+    api_football: 42
+    xg_sources: [fotmob, api_football]
+  - key: EC
+    name: National League
+    country: England
+    tier: 5
+    fotmob: 117
+    api_football: 43
+    xg_sources: [fotmob, api_football]
+
+  # ---------------- Big 5 (ex-England) ----------------
+  - key: SP1
+    name: La Liga
+    country: Spain
+    tier: 1
+    understat: La_liga
+    fotmob: 87
+    api_football: 140
+    xg_sources: [understat, fotmob, api_football]
+  - key: I1
+    name: Serie A
+    country: Italy
+    tier: 1
+    understat: Serie_A
+    fotmob: 55
+    api_football: 135
+    xg_sources: [understat, fotmob, api_football]
+  - key: D1
+    name: Bundesliga
+    country: Germany
+    tier: 1
+    understat: Bundesliga
+    fotmob: 54
+    api_football: 78
+    xg_sources: [understat, fotmob, api_football]
+  - key: F1
+    name: Ligue 1
+    country: France
+    tier: 1
+    understat: Ligue_1
+    fotmob: 53
+    api_football: 61
+    xg_sources: [understat, fotmob, api_football]
+
+  # ---------------- Next tier ----------------
+  - key: N1
+    name: Eredivisie
+    country: Netherlands
+    tier: 1
+    fotmob: 57
+    api_football: 88
+    xg_sources: [fotmob, api_football]
+  - key: P1
+    name: Primeira Liga
+    country: Portugal
+    tier: 1
+    fotmob: 61
+    api_football: 94
+    xg_sources: [fotmob, api_football]
+  - key: B1
+    name: Belgian Pro League
+    country: Belgium
+    tier: 1
+    fotmob: 40
+    api_football: 144
+    xg_sources: [fotmob, api_football]
+  - key: SC0
+    name: Scottish Premiership
+    country: Scotland
+    tier: 1
+    fotmob: 64
+    api_football: 179
+    xg_sources: [fotmob, api_football]
+
+# Model settings (all overridable from the CLI / dashboard)
+model:
+  half_life_days: 240        # time-decay of old matches in team ratings
+  xg_weight: 0.7             # blend: target = w*xG + (1-w)*goals when real xG exists
+  proxy_xg_weight: 0.5       # same blend when only proxy (shots-based) xG exists
+  ridge: 2.0                 # shrinkage toward priors (bigger = more conservative early season)
+  promoted_prior: -0.20      # starting rating for promoted teams (log scale)
+  relegated_prior: 0.20      # starting rating for relegated teams
+  max_goals: 10

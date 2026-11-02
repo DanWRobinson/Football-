@@ -1,0 +1,6 @@
+{"details": {"id": 108, "name": "League One"}, "fixtures": {"allMatches": [
+  {"id": "555", "home": {"name": "Bolton Wanderers", "id": 1}, "away": {"name": "Wigan Athletic", "id": 2},
+   "status": {"utcTime": "2025-08-02T14:00:00Z", "finished": true, "started": true, "scoreStr": "2 - 0"}},
+  {"id": "556", "home": {"name": "Wigan Athletic", "id": 2}, "away": {"name": "Bolton Wanderers", "id": 1},
+   "status": {"utcTime": "2099-01-10T15:00:00Z", "finished": false, "started": false}}
+]}}

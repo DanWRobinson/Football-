@@ -1,0 +1,22 @@
+{"dates": [
+  {"id": "1001", "isResult": true, "h": {"id": "87", "title": "Liverpool", "short_title": "LIV"},
+   "a": {"id": "73", "title": "Bournemouth", "short_title": "BOU"}, "goals": {"h": "4", "a": "2"},
+   "xG": {"h": "2.68", "a": "1.11"}, "datetime": "2025-08-15 19:00:00", "forecast": {"w": "0.77", "d": "0.15", "l": "0.08"}},
+  {"id": "1002", "isResult": true, "h": {"id": "71", "title": "Aston Villa", "short_title": "AVL"},
+   "a": {"id": "86", "title": "Newcastle United", "short_title": "NEW"}, "goals": {"h": "0", "a": "0"},
+   "xG": {"h": "0.42", "a": "1.37"}, "datetime": "2025-08-16 11:30:00"},
+  {"id": "1003", "isResult": true, "h": {"id": "249", "title": "Nottingham Forest", "short_title": "NFO"},
+   "a": {"id": "244", "title": "Brentford", "short_title": "BRE"}, "goals": {"h": "3", "a": "1"},
+   "xG": {"h": "1.81", "a": "0.94"}, "datetime": "2025-08-16 14:00:00"},
+  {"id": "1004", "isResult": false, "h": {"id": "87", "title": "Liverpool", "short_title": "LIV"},
+   "a": {"id": "86", "title": "Newcastle United", "short_title": "NEW"}, "goals": {"h": null, "a": null},
+   "xG": {"h": null, "a": null}, "datetime": "2099-08-25 19:00:00"}
+],
+"teams": {"87": {"id": "87", "title": "Liverpool", "history": [
+   {"h_a": "h", "xG": 2.68, "xGA": 1.11, "npxG": 1.92, "npxGA": 1.11, "ppda": {"att": 220, "def": 25},
+    "deep": 12, "deep_allowed": 4, "scored": 4, "missed": 2, "xpts": 2.31, "result": "w", "date": "2025-08-15 19:00:00"}]}},
+"players": [
+  {"id": "1250", "player_name": "Mohamed Salah", "games": "1", "time": "90", "goals": "1", "xG": "0.95",
+   "assists": "1", "xA": "0.40", "shots": "5", "key_passes": "3", "yellow_cards": "0", "red_cards": "0",
+   "position": "F M", "team_title": "Liverpool", "npg": "1", "npxG": "0.95", "xGChain": "1.6", "xGBuildup": "0.3"}
+]}
