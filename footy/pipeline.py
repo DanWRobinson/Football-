@@ -316,8 +316,18 @@ def update_elo(echo=print, date: dt.date | None = None) -> None:
     echo(f"  ClubElo: {matched} clubs matched to league teams")
 
 
-def latest_elo(con) -> pd.DataFrame:
-    return db.read_sql(con, "SELECT * FROM elo WHERE team IS NOT NULL AND date=(SELECT MAX(date) FROM elo)")
+def latest_elo(con, frame: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Latest ClubElo snapshot; if ClubElo hasn't been reachable recently, Elo computed from our own results."""
+    e = db.read_sql(con, "SELECT * FROM elo WHERE team IS NOT NULL AND date=(SELECT MAX(date) FROM elo)")
+    fresh = not e.empty and (dt.date.today() - dt.date.fromisoformat(e.date.iloc[0])).days <= 14
+    if fresh:
+        return e
+    from .models import elo as own
+    from .models.data import match_frame
+    if frame is None:
+        cur = config.current_season()
+        frame = match_frame(con, None, [cur - 1, cur])
+    return own.compute(frame)
 
 
 def update_fpl(echo=print) -> None:

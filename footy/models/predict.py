@@ -99,7 +99,7 @@ def value_bets(pred: pd.DataFrame, min_edge: float = 0.05, max_price: float = 8.
             e = edge(p, price)
             if e >= min_edge:
                 sel = {"H": r.home_name or r.home, "A": r.away_name or r.away, "D": "Draw"}.get(label, label)
-                out.append(dict(date=r.date, league=r.league, match=f"{r.home_name or r.home} v {r.away_name or r.away}",
+                out.append(dict(match_id=r.match_id, sel_key=label, date=r.date, league=r.league, match=f"{r.home_name or r.home} v {r.away_name or r.away}",
                                 market=market, selection=sel, model_p=p, fair_odds=1 / p,
                                 market_p=r.get(mcol, np.nan), price=price, edge=e,
                                 stake_pct=kelly(p, price, kelly_fraction),

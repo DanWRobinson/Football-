@@ -122,6 +122,7 @@ def test_static_report(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", path)
     out = report.build(tmp_path / "site" / "index.html")
     page = out.read_text()
-    for tab in ("Value", "Fixtures", "Tables", "Regression", "FPL", "Players", "Data"):
+    for tab in ("Value", "Match", "Fixtures", "Tables", "Regression", "FPL", "Players", "Data"):
         assert f">{tab}</button>" in page
+    assert 'id="footy-data"' in page and 'data-f="q"' in page and "mxL" in page
     assert "Premier League" in page and "<table>" in page
