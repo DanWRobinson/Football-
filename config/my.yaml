@@ -7,10 +7,13 @@ fpl:
   # Optional: your FPL team ID (the number in the address bar on the FPL website:
   # fantasy.premierleague.com/entry/<ID>/event/...). When set, the squad, bank and captain
   # are read from FPL automatically after every deadline and the list below is ignored.
-  entry_id:
-  bank: 0.0            # money in the bank (£m) - used for transfer suggestions
-  # Gameweek 10 squad (from your screenshot). Name as shown in FPL + next opponent, so
-  # players with the same surname can't be mixed up.
+  entry_id: 2135393
+  bank: 2.1            # money in the bank (£m) - used until FPL publishes picks for `gameweek`
+  # FPL only publishes a team's picks after each deadline, so this list (from your Gameweek 10
+  # screenshot) is used until the GW10 deadline passes; after that the squad, captain and bank
+  # come from FPL automatically every week. Name as shown in FPL + next opponent, so players
+  # with the same surname can't be mixed up.
+  gameweek: 10
   squad:
     - {name: Suzuki, next: MUN (A)}
     - {name: Van Hecke, next: LEE (A)}

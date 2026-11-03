@@ -48,7 +48,7 @@ def squad(con) -> tuple[pd.DataFrame, float]:
     """Resolve the squad to FPL player ids. Returns (rows with id/captain/vice/bench, bank)."""
     cfg = load().get("fpl") or {}
     bank = float(cfg.get("bank") or 0)
-    if cfg.get("entry_id"):
+    if cfg.get("entry_id") and (not cfg.get("squad") or _deadline_passed(con, cfg.get("gameweek"))):
         try:
             return _from_entry(con, int(cfg["entry_id"]))
         except Exception:  # noqa: BLE001 - fall back to the list in the file
@@ -68,6 +68,14 @@ def squad(con) -> tuple[pd.DataFrame, float]:
         rows.append(dict(id=int(cand.id.iloc[0]), captain=bool(s.get("captain")), vice=bool(s.get("vice")),
                          bench=int(s.get("bench") or 0), order=i))
     return pd.DataFrame(rows), bank
+
+
+def _deadline_passed(con, gameweek) -> bool:
+    """True once FPL's picks for `gameweek` are public (its deadline has passed)."""
+    if not gameweek:
+        return True
+    ev = db.read_sql(con, "SELECT id FROM fpl_events WHERE is_current=1 OR finished=1 ORDER BY id DESC LIMIT 1")
+    return not ev.empty and int(ev.id.iloc[0]) >= int(gameweek)
 
 
 def _from_entry(con, entry: int) -> tuple[pd.DataFrame, float]:
