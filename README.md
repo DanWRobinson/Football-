@@ -1,4 +1,6 @@
-# Footy Edge
+# BetWise
+
+_(Working name - change `app_name` in `config/my.yaml`.)_
 
 A data-led toolkit for **fantasy football** and **betting** decisions. It pulls detailed stats (xG, xGA,
 big chances, shots, PPDA, odds) for 13 leagues into a local database. It fits xG-based team models

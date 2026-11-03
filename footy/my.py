@@ -24,6 +24,10 @@ def load() -> dict:
         return yaml.safe_load(fh) or {}
 
 
+def app_name() -> str:
+    return str(load().get("app_name") or "BetWise")
+
+
 def favourite() -> str | None:
     t = load().get("favourite_team")
     return canonical(t) if t else None

@@ -624,9 +624,9 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
     body = "".join(f'<section id="{ids[k]}" class="{"on" if i == 0 else ""}">{v}</section>'
                    for i, (k, v) in enumerate(sections.items()))
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Footy Edge</title>
-<meta name="apple-mobile-web-app-capable" content="yes">{mobile.HEAD if icons else ""}<style>{CSS}</style></head><body>
-<header><h1>⚽ Footy Edge</h1><div class="sub">Updated {stamp} · {config.season_label(cur)}</div></header>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(_my.app_name())}</title>
+<meta name="apple-mobile-web-app-capable" content="yes">{mobile.head() if icons else ""}<style>{CSS}</style></head><body>
+<header><h1>⚽ {html.escape(_my.app_name())}</h1><div class="sub">Updated {stamp} · {config.season_label(cur)}</div></header>
 <nav><div>{nav}</div></nav><main>{body}</main>
 <footer>Probabilities, not certainties. Bet only what you can afford to lose · BeGambleAware.org · 0808 8020 133</footer>
 <script type="application/json" id="footy-data">{_json(data)}</script>

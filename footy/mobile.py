@@ -303,13 +303,20 @@ def write_icon(out_dir) -> bool:
                    (c - r * 0.27, c + r * 0.36), (c - r * 0.43, c - r * 0.14)], fill=(29, 29, 31))
         im.save(out_dir / f"icon-{size}.png")
     (out_dir / "manifest.webmanifest").write_text(json.dumps({
-        "name": "Footy Edge", "short_name": "Footy Edge", "start_url": ".", "display": "standalone",
+        "name": app_name(), "short_name": app_name(), "start_url": ".", "display": "standalone",
         "background_color": "#f7f7f5", "theme_color": "#0b6e4f",
         "icons": [{"src": "icon-180.png", "sizes": "180x180", "type": "image/png"},
                   {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"}]}))
     return True
 
 
-HEAD = ('<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-180.png">'
-        '<meta name="theme-color" content="#0b6e4f"><meta name="apple-mobile-web-app-title" content="Footy Edge">'
-        '<meta name="apple-mobile-web-app-status-bar-style" content="default">')
+def app_name() -> str:
+    from .my import app_name as _n
+    return _n()
+
+
+def head() -> str:
+    return ('<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-180.png">'
+            '<meta name="theme-color" content="#0b6e4f">'
+            f'<meta name="apple-mobile-web-app-title" content="{html.escape(app_name())}">'
+            '<meta name="apple-mobile-web-app-status-bar-style" content="default">')

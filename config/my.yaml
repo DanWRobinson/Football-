@@ -1,5 +1,8 @@
 # Your personal settings for the phone page.
 
+# App name shown on the page, home-screen icon and dashboard.
+app_name: BetWise
+
 # Pinned on the Team and Fixtures tabs.
 favourite_team: Liverpool
 

@@ -23,7 +23,9 @@ from footy.models.value import devig, edge, kelly  # noqa: E402
 from footy.models import referees  # noqa: E402
 from footy.pipeline import coverage, latest_elo  # noqa: E402
 
-st.set_page_config(page_title="Footy Edge", page_icon="⚽", layout="wide")
+from footy.my import app_name  # noqa: E402
+
+st.set_page_config(page_title=app_name(), page_icon="⚽", layout="wide")
 
 DB_PATH = Path(os.environ.get("FOOTY_DB", config.DB_PATH))
 LEAGUES = config.leagues()
@@ -75,7 +77,7 @@ def nm(k):
 
 
 with st.sidebar:
-    st.title("⚽ Footy Edge")
+    st.title(f"⚽ {app_name()}")
     if "demo" in DB_PATH.name:
         st.warning("DEMO DATA - fictional teams")
     page = st.radio("Page", ["Data coverage", "League tables", "Team form", "Predictions & value",
