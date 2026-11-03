@@ -219,10 +219,23 @@ JS = r"""
    '</tbody></table></div><p class="note">* estimated from shots (no real xG for that game). BC = big chances.</p>';
   O.innerHTML=h}
  L.onchange=()=>fillT();T.onchange=draw;
- const fav=(()=>{try{return localStorage.getItem('team')}catch(e){return null}})();
+ const fav=(()=>{try{return localStorage.getItem('team')}catch(e){return null}})()||D.fav;
  if(fav&&D.teams[fav]){L.value=D.teams[fav].lg;fillT(fav)}else fillT();
  T.addEventListener('change',()=>{try{localStorage.setItem('team',T.value)}catch(e){}});
 })();
+
+/* ---------- favourite team card on Fixtures */
+(()=>{const box=$('#favCard'),t=D.fav;if(!box||!t||!D.teams[t])return;const d=D.teams[t],up=(D.upcoming||{})[t]||[];
+ const last=d.m.slice(-5).map(x=>x[4]>x[5]?'<i class="pos">W</i>':x[4]==x[5]?'<i>D</i>':'<i class="neg">L</i>').join('');
+ let h=`<div class="card"><h2>${nm(t)}</h2><p class="note">Form ${last}</p>`;
+ const f=up.length?D.fixtures.find(x=>x.id===up[0][4]):null;
+ if(f){const M=matrix(f.xh,f.xa,(D.ratings[f.lg]||{}).rho||-0.05),mk=markets(M,nm(f.h),nm(f.a));const g=k=>mk.find(x=>x[0]===k)[2];
+  h+=`<p><b>${f.day} · ${nm(f.h)} v ${nm(f.a)}</b> <span class="sub">${D.lgnames[f.lg]||f.lg}</span></p><div class="grid">`+
+   [['H',nm(f.h)],['D','Draw'],['A',nm(f.a)],['O2.5','Over 2.5'],['BTTS','BTTS']].map(([k,l])=>`<div class="mk"><span>${l}</span><b>${pc(g(k))}</b><span>fair ${fo(g(k))}</span></div>`).join('')+
+   `</div><p><a class="go" href="#" data-fx="${f.id}">Open in Match tab ›</a>${(f.nh||f.na)?` <span class="sub">${[f.nh,f.na].filter(Boolean).join(' · ')}</span>`:''}</p>`}
+ else if(up.length)h+=`<p>Next: ${up[0][0]} ${up[0][3]=='H'?'v':'@'} ${nm(up[0][2])} <span class="sub">(${D.lgnames[up[0][1]]||up[0][1]})</span></p>`;
+ if(up.length>1)h+='<p class="note">Then: '+up.slice(1,4).map(u=>`${u[0]} ${u[3]=='H'?'v':'@'} ${nm(u[2])}`).join(' · ')+'</p>';
+ box.innerHTML=h+'</div>'})();
 
 /* ---------- Props tab */
 (()=>{const box=$('#ppOut');if(!box)return;const lg=$('#ppLg');

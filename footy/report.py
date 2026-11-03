@@ -273,6 +273,50 @@ def _pool(p, q, w: float = MODEL_WEIGHT):
     return a / (a + b)
 
 
+def my_squad_html(m: dict) -> str:
+    sq = m["squad"].copy()
+    gw = [c for c in sq.columns if c.startswith("GW")]
+    nxt = gw[0] if gw else "next GW"
+    sq["role"] = [("C" if r.id == m["current_captain"] else "VC" if r.vice else "") for r in sq.itertuples()]
+    sq["now"] = ["XI" if s else f"B{b}" for s, b in zip(sq.start_now, sq.bench)]
+    sq["best"] = [("★ C" if r.id == m["captain"] else "★ VC" if r.id == m["vice"] else "★") if r.start_best else ""
+                  for r in sq.itertuples()]
+    sq["flag"] = [("⚠ " + (r.news or "doubtful")) if (r.status not in ("a", None) or
+                                                    (pd.notna(r.chance_next) and r.chance_next < 75)) else ""
+                  for r in sq.itertuples()]
+    order = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
+    sq = sq.sort_values(["start_now", "position", "xPts_next"], key=lambda c: c.map(order) if c.name == "position"
+                        else c, ascending=[False, True, False])
+    cap_name = sq.loc[sq.id == m["captain"], "player"].iloc[0] if m["captain"] is not None else "-"
+    vc_name = sq.loc[sq.id == m["vice"], "player"].iloc[0] if m["vice"] is not None else "-"
+    changes = [r.player for r in sq.itertuples() if r.start_now != r.start_best]
+    diff = m["best_pts"] - m["now_pts"]
+    card = lambda l, v, sub="": f'<div class="mk"><span>{l}</span><b>{v}</b><span>{sub}</span></div>'  # noqa: E731
+    html_ = ['<h2>My squad</h2>',
+             '<div class="grid">', card(f"Your XI ({nxt})", f"{m['now_pts']:.1f}", "expected pts, your captain"),
+             card("Best XI", f"{m['best_pts']:.1f}", f"{diff:+.1f} pts" if diff > 0.05 else "you're already optimal"),
+             card("Captain", html.escape(cap_name), f"vice {html.escape(vc_name)}"),
+             card("Bank", f"£{m['bank']:.1f}m", "set in config/my.yaml"), '</div>']
+    if diff > 0.05 and changes:
+        html_.append(f'<p class="note">Suggested line-up changes: {html.escape(", ".join(changes))} '
+                     "(★ = recommended starter).</p>")
+    html_.append(table(sq, [("player", "Player", "text"), ("team", "Team", "text"), ("position", "Pos", "text"),
+                            ("price", "£m", "f1"), ("now", "Now", "text"), ("role", "", "text"),
+                            ("best", "Best", "text"), *[(g, g, "f1") for g in gw],
+                            ("xPts_5gw", "5GW", "f1"), ("flag", "News", "text")]))
+    mv = m["moves"]
+    if not mv.empty:
+        mv = mv.head(8)
+        html_.append(f'<h2>Best single transfers (next {m["horizon"]} GWs)</h2><p class="note">Same position, '
+                     "affordable with your bank, max 3 per club. Gains are before any points hit (-4 per extra transfer). "
+                     "⚠ = player flagged injured/doubtful.</p>")
+        mv["out_l"] = [("⚠ " if f else "") + o for o, f in zip(mv.out, mv.flag)]
+        html_.append(table(mv, [("out_l", "Out", "text"), ("out_pts", "xPts", "f1"), ("inn", "In", "text"),
+                                ("in_team", "Team", "text"), ("in_price", "£m", "f1"), ("in_pts", "xPts", "f1"),
+                                ("gain", "Gain", "signed")]))
+    return "".join(html_)
+
+
 def _json(obj) -> str:
     import json
     def conv(o):
@@ -315,7 +359,9 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
         pred = pred.sort_values(["date", "kickoff", "league"], na_position="last")
 
     # data for the in-page match explorer and value table
-    data = {"names": {}, "lgnames": {k: ln(k) for k in order}, "ratings": {}, "fixtures": [], "value": []}
+    from . import my as _my
+    data = {"names": {}, "lgnames": {k: ln(k) for k in order}, "ratings": {}, "fixtures": [], "value": [],
+            "fav": _my.favourite()}
     cur_teams = {}
     for k in order:
         c = frame[(frame.league == k) & (frame.season == cur)]
@@ -413,7 +459,7 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                 ("A_CS", "A CS", "pct"), ("exp_cards", "Cards", "f1"), ("referee", "Referee", "text"),
                 ("news_home", "Home news", "text"), ("news_away", "Away news", "text"), ("check", "", "html")],
             attrs={"lg": "league"}) + "</details>")
-    sections["Fixtures"] = ('<p class="note">Model probabilities for the next week; "Mkt" = bookmaker odds '
+    sections["Fixtures"] = ('<div id="favCard"></div><p class="note">Model probabilities for the next week; "Mkt" = bookmaker odds '
                             "with the margin removed. Tap a column header to sort.</p>"
                             + fbar(lg_opts(pred.league if not pred.empty else []), placeholder="Search team")
                             + ("".join(fx_html) or '<p class="note">No upcoming fixtures.</p>'))
@@ -480,6 +526,8 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
         xp, tick = fpl.expected_points(con, ratings["E0"], 5)
         if not xp.empty:
             xp["team"] = xp.team.map(nm)
+            from . import my
+            mine = my.analyse(con, xp, 5)
             xp = xp[xp.start_rate >= 0.3]
             gw = [c for c in xp.columns if c.startswith("GW")]
             spec = [("player", "Player", "text"), ("team", "Team", "text"), ("position", "Pos", "text"),
@@ -491,7 +539,8 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                      '<select data-f="maxp" aria-label="Max price"><option value="">Any price</option>'
                      + "".join(f'<option value="{v}">≤ £{v}m</option>' for v in (4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0,
                                                                               9.0, 10.0, 11.0, 12.0)) + "</select>")
-            parts = ['<p class="note">Expected FPL points over the next 5 gameweeks. Built from FPL xG/xA, fixture '
+            parts = [my_squad_html(mine)] if mine else []
+            parts += ['<h2>All players</h2><p class="note">Expected FPL points over the next 5 gameweeks. Built from FPL xG/xA, fixture '
                      "difficulty from the team model, clean-sheet odds, recent starts, defensive contributions, "
                      "saves and bonus. Filter by position/price; tap a header to sort (e.g. per £m).</p>",
                      fbar(None, extra, placeholder="Search player or team"),
