@@ -128,6 +128,44 @@ def store_players(con, source: str, recs: list[PlayerRecord]) -> int:
     return n
 
 
+def recanonicalise(con) -> int:
+    """Re-key teams stored under an old canonical name after the alias table improved.
+
+    Only moves a row when its display name now maps to a team that already exists in the same
+    league-season (so fuzzy-resolved names are left alone). Duplicate matches are merged: stats
+    and odds move to the surviving row.
+    """
+    from .names import canonical as canon
+    moved = 0
+    teams = {}
+    for lg, ssn, t in con.execute("SELECT league, season, home FROM matches UNION SELECT league, season, away FROM matches"):
+        teams.setdefault((lg, ssn), set()).add(t)
+    rows = con.execute("SELECT match_id, league, season, date, home, away, home_name, away_name, "
+                       "home_goals, away_goals, status FROM matches").fetchall()
+    for mid, lg, ssn, date, h, a, hn, an, hg, ag, st in rows:
+        known = teams.get((lg, ssn), set())
+        nh = canon(hn) if hn else h
+        na = canon(an) if an else a
+        nh = nh if nh != h and nh in known else h
+        na = na if na != a and na in known else a
+        if (nh, na) == (h, a):
+            continue
+        new_id = f"{lg}|{date}|{nh}|{na}"
+        exists = con.execute("SELECT 1 FROM matches WHERE match_id=?", (new_id,)).fetchone()
+        for t in ("team_match_stats", "odds", "source_map", "availability"):
+            con.execute(f"UPDATE OR IGNORE {t} SET match_id=? WHERE match_id=?", (new_id, mid))
+            con.execute(f"DELETE FROM {t} WHERE match_id=?", (mid,))
+        if exists:
+            con.execute("UPDATE matches SET home_goals=COALESCE(home_goals, ?), away_goals=COALESCE(away_goals, ?), "
+                        "status=CASE WHEN ?='played' THEN 'played' ELSE status END WHERE match_id=?",
+                        (hg, ag, st, new_id))
+            con.execute("DELETE FROM matches WHERE match_id=?", (mid,))
+        else:
+            con.execute("UPDATE matches SET match_id=?, home=?, away=? WHERE match_id=?", (new_id, nh, na, mid))
+        moved += 1
+    return moved
+
+
 def cleanup(con) -> None:
     """Drop stale fixtures (postponed/re-dated) and fixtures superseded by results."""
     cutoff = (dt.date.today() - dt.timedelta(days=4)).isoformat()
@@ -155,6 +193,12 @@ def _skip_ids(con, source: str) -> set[str]:
 
 def update(leagues: list[str], seasons: list[int], sources: list[str] | None = None,
            players: bool = True, echo=print) -> None:
+    import os
+    import time
+    t0 = time.time()
+    # optional time budget (seconds): past it, the slow per-match sources are skipped for this run so
+    # the job always finishes; football-data results/odds, FPL and ClubElo still update
+    budget = float(os.environ.get("FOOTY_TIME_BUDGET", "0") or 0)
     cfg = config.leagues()
     sources = sources or ["football_data", "understat", "fotmob", "api_football"]
     with db.session() as con:
@@ -168,6 +212,9 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
             primary = next((s for s in order if REGISTRY[s]().supports(lg) and REGISTRY[s]().available()), None)
             extra = _domestic_teams(con, [max(seasons) - 1, max(seasons)]) if lg.is_europe else None
             for sname in order:
+                if budget and sname != "football_data" and time.time() - t0 > budget:
+                    echo(f"  [{key}] {sname}: skipped - time budget used up (resumes next run)")
+                    continue
                 src = REGISTRY[sname]()
                 if not src.available():
                     echo(f"  [{key}] {sname}: skipped (set {src.requires_key} to enable)")
@@ -186,7 +233,8 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
                         if st["unmatched"]:
                             msg += " e.g. " + "; ".join(st["unmatched"][:3])
                         db.log_source(con, sname, key, season, True, len(recs), msg)
-                        echo(f"  [{key} {config.season_label(season)}] {sname}: {msg}")
+                        echo(f"  [{key} {config.season_label(season)}] {sname}: {msg} "
+                             f"({(time.time() - t0) / 60:.0f} min)")
                         if players and sname != "football_data":
                             try:
                                 prs = src.players(lg, season)
@@ -219,6 +267,9 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
                     except Exception as e:
                         echo(f"  [{key}] {sname}: fixtures/team news FAILED {e}")
             con.commit()
+        n = recanonicalise(con)
+        if n:
+            echo(f"  merged/re-keyed {n} matches after team-name fixes")
         cleanup(con)
     try:
         update_elo(echo=echo)

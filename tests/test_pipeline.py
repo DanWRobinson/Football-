@@ -43,3 +43,19 @@ def test_cleanup_removes_superseded_fixtures(tmp_path):
     pipeline.cleanup(con)
     rows = con.execute("SELECT status FROM matches").fetchall()
     assert [r[0] for r in rows] == ["played"]
+
+
+def test_recanonicalise_merges_old_keys(tmp_path):
+    con = db.connect(tmp_path / "t.db")
+    # old run stored the club under a stale key; new run stored it under the fixed alias
+    con.execute("INSERT INTO matches(match_id, league, season, date, home, away, home_name, away_name, "
+                "home_goals, away_goals, status) VALUES('B1|2026-08-09|anderlecht|raal la louviere', 'B1', 2026, "
+                "'2026-08-09', 'anderlecht', 'raal la louviere', 'Anderlecht', 'RAAL La Louviere', 2, 0, 'played')")
+    db.put_stats(con, "B1|2026-08-09|anderlecht|raal la louviere", "football_data", {"shots": 12}, {"shots": 5})
+    db.upsert_match(con, league="B1", season=2026, date="2026-08-09", home="Anderlecht", away="La Louviere",
+                    home_goals=2, away_goals=0)
+    db.upsert_match(con, league="B1", season=2026, date="2026-08-16", home="La Louviere", away="Gent")
+    assert pipeline.recanonicalise(con) == 1
+    rows = con.execute("SELECT match_id FROM matches ORDER BY match_id").fetchall()
+    assert [r[0] for r in rows] == ["B1|2026-08-09|anderlecht|la louviere", "B1|2026-08-16|la louviere|gent"]
+    assert con.execute("SELECT COUNT(*) FROM team_match_stats WHERE match_id LIKE '%|la louviere'").fetchone()[0] == 2

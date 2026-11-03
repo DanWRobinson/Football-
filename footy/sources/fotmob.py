@@ -159,10 +159,15 @@ def _within_days(date: str, days: int) -> bool:
 class FotMob(Source):
     name = "fotmob"
 
+    # once the JSON API refuses us in a run, go straight to the HTML pages (saves a request per match)
+    _api_blocked = False
+
     def __init__(self, max_matches: int | None = None):
-        # fetching per-match detail is the slow bit; the pipeline passes ids it already has
+        # fetching per-match detail is the slow bit; the pipeline passes ids it already has.
+        # The current season gets the bigger share of each run's request budget.
         self.skip_ids: set[str] = set()
         self.max_matches = max_matches or int(os.environ.get("FOTMOB_MAX_MATCHES", "400"))
+        self.max_matches_prev = int(os.environ.get("FOTMOB_MAX_MATCHES_PREV", str(self.max_matches)))
 
     def supports(self, lg: League) -> bool:
         return bool(lg.fotmob)
@@ -181,17 +186,25 @@ class FotMob(Source):
 
     def match_payload(self, match_id: str, finished: bool):
         ttl = -1 if finished else 3600
-        try:
-            return get(f"{BASE}/api/matchDetails", params={"matchId": match_id},
-                       headers=_headers(), as_json=True, ttl=ttl)
-        except (FetchError, ValueError):
+        if not FotMob._api_blocked:
+            try:
+                return get(f"{BASE}/api/matchDetails", params={"matchId": match_id},
+                           headers=_headers(), as_json=True, ttl=ttl)
+            except FetchError as e:
+                if "HTTP 4" in str(e):
+                    FotMob._api_blocked = True
+            except ValueError:
+                pass
+        if True:
             nd = _next_data(get(f"{BASE}/match/{match_id}", ttl=ttl))
             if not nd:
                 raise
             return nd
 
     def _records(self, lg: League, season: int, with_stats: bool, with_news: bool = False) -> list[MatchRecord]:
+        from ..config import current_season
         out, fetched = [], 0
+        cap = self.max_matches if season >= current_season() else self.max_matches_prev
         for m in extract_league_matches(self.league_payload(lg, season)):
             if not isinstance(m, dict):
                 continue
@@ -212,7 +225,7 @@ class FotMob(Source):
                     hs, as_ = (parts + [None, None])[:2]
                 rec.home_goals = int(hs) if hs is not None else None
                 rec.away_goals = int(as_) if as_ is not None else None
-                if with_stats and rec.source_id not in self.skip_ids and fetched < self.max_matches:
+                if with_stats and rec.source_id not in self.skip_ids and fetched < cap:
                     try:
                         payload = self.match_payload(rec.source_id, True)
                         rec.home_stats, rec.away_stats = extract_match_stats(payload)
@@ -248,11 +261,13 @@ class FotMob(Source):
         if not m:
             return []
         sid = m.group(1)
+        from ..config import current_season
+        ttl = 12 * 3600 if season >= current_season() else 7 * 86400   # finished seasons rarely change
         merged: dict[str, PlayerRecord] = {}
         for stat, col in PLAYER_STATS.items():
             try:
                 data = get(f"https://data.fotmob.com/stats/{lg.fotmob}/season/{sid}/{stat}.json",
-                           as_json=True, ttl=12 * 3600)
+                           as_json=True, ttl=ttl)
             except (FetchError, ValueError):
                 continue
             for node in _walk(data):

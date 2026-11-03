@@ -20,8 +20,18 @@ COUNTRY = {"England": "ENG", "Spain": "ESP", "Italy": "ITA", "Germany": "GER", "
 
 
 def fetch(date: dt.date | None = None) -> pd.DataFrame:
+    """Ratings for `date`; ClubElo sometimes 502s on the current day, so try the previous few."""
     date = date or dt.date.today()
-    return parse(get(f"{BASE}/{date.isoformat()}", ttl=12 * 3600))
+    err = None
+    for back in range(4):
+        d = date - dt.timedelta(days=back)
+        try:
+            df = parse(get(f"{BASE}/{d.isoformat()}", ttl=12 * 3600))
+            if len(df):
+                return df
+        except Exception as e:  # noqa: BLE001 - try an earlier snapshot
+            err = e
+    raise err or RuntimeError("ClubElo returned no data")
 
 
 def parse(text: str) -> pd.DataFrame:
