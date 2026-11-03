@@ -126,3 +126,19 @@ def test_static_report(tmp_path, monkeypatch):
         assert f">{tab}</button>" in page
     assert 'id="footy-data"' in page and 'data-f="q"' in page and "mxL" in page
     assert "Premier League" in page and "<table>" in page
+
+
+def test_prop_rates_use_domestic_and_shrink_small_samples():
+    import pandas as pd
+    from footy.models.props import player_rates
+    rows = pd.DataFrame([
+        # a full-back with a lucky Champions League sample but an ordinary domestic record
+        dict(league="UCL", team="psv", player="Dest", position=None, minutes=270, games=3, goals=1, xg=0.3, xa=0.2, shots=3.9, sot=3.0),
+        dict(league="N1", team="psv", player="Dest", position=None, minutes=880, games=10, goals=2, xg=0.9, xa=0.8, shots=9.0, sot=2.0),
+        # a striker with lots of shots
+        dict(league="E0", team="man city", player="Haaland", position=None, minutes=810, games=9, goals=9, xg=6.6, xa=0.8, shots=34.2, sot=16.2),
+    ])
+    r = player_rates(rows).set_index("player")
+    assert r.loc["Dest", "rate_source"] == "domestic"
+    assert r.loc["Dest", "sot_p90"] < 0.3                     # not the 1.0/90 the UCL sample implied
+    assert r.loc["Haaland", "shots_p90"] > 2.5 and 0.35 < r.loc["Haaland", "sot_share"] <= 0.55

@@ -89,7 +89,7 @@ def props_data(con, pred: pd.DataFrame, frame: pd.DataFrame, ratings: dict, name
     pt = props.player_table(con, None, [cur])
     if pt.empty:
         return []
-    pr = props.price_props(pt, fx, ratings, min_minutes=270)
+    pr = props.price_props(pt, fx, ratings, min_minutes=360)
     if pr.empty:
         return []
     pr = pr.merge(fx[["league", "date", "home_name", "away_name", "match_id"]].assign(
