@@ -52,6 +52,9 @@ PLAYER_STATS = {
 }
 
 
+PER90_STATS = ("shots", "sot")
+
+
 def _headers() -> dict:
     h = {"Referer": BASE + "/"}
     if os.environ.get("FOTMOB_XMAS"):
@@ -281,4 +284,10 @@ class FotMob(Source):
                         rec.stats["minutes"] = _num(node["MinutesPlayed"])
                     if node.get("MatchesPlayed") is not None:
                         rec.stats["games"] = _num(node["MatchesPlayed"])
+        # FotMob's shot leaderboards are per-90 rates; store season totals like every other source
+        for rec in merged.values():
+            mins = rec.stats.get("minutes")
+            for col in PER90_STATS:
+                if rec.stats.get(col) is not None and mins:
+                    rec.stats[col] = round(rec.stats[col] * mins / 90, 1)
         return list(merged.values())

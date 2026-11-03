@@ -54,7 +54,7 @@ a.go{color:var(--accent);font-weight:600;text-decoration:none}
 th.s{cursor:pointer;user-select:none}th.s:after{content:" ⇅";opacity:.35;font-size:11px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:10px 0}
 .mk{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
-.mk b{display:block;font-size:20px}.mk span{font-size:12px;color:var(--muted)}
+.mk b{display:block;font-size:20px}.mk i{font-style:normal;margin-right:5px}.mk span{font-size:12px;color:var(--muted)}
 .mxform{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
 .mxform label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
 .big{font-size:22px;font-weight:700}.hide{display:none!important}
@@ -152,15 +152,17 @@ if(mx.L){mx.L.innerHTML=Object.keys(D.ratings).map(k=>`<option value="${k}">${D.
   mx.XH.value=first.xh.toFixed(2);mx.XA.value=first.xa.toFixed(2);render()}else{fillFixtures();fillTeams(mx.L.value);setXG()}}
 
 /* ---------- Value tab (rendered from data so the filters can re-rank it) */
-function renderValue(){const box=$('#vbox');if(!box)return;const me=parseFloat($('#vMin').value)/100||0,bk=$('#vBook').value,
+function renderValue(){const box=$('#vbox');if(!box)return;const adj=($('#vMode')||{}).value!=='raw';
+ const P=v=>adj&&v.pb!=null?v.pb:v.p, E=v=>P(v)*v.price-1, S=v=>Math.min(Math.max((P(v)*v.price-1)/(v.price-1),0)*0.25,0.05);
+ const me=parseFloat($('#vMin').value)/100||0,bk=$('#vBook').value,
  mk=$('#vMk').value,lg=($('#vLg').value||''),q=($('#vQ').value||'').toLowerCase(),mx_=parseFloat($('#vMax').value)||99;
- const rows=D.value.filter(v=>v.book===bk&&v.edge>=me&&v.price<=mx_&&(!mk||v.market===mk)&&(!lg||v.lg===lg)&&
-  (!q||(v.match+' '+v.sel).toLowerCase().includes(q))).sort((a,b)=>b.edge-a.edge);
+ const rows=D.value.filter(v=>v.book===bk&&E(v)>=me&&v.price<=mx_&&(!mk||v.market===mk)&&(!lg||v.lg===lg)&&
+  (!q||(v.match+' '+v.sel).toLowerCase().includes(q))).sort((a,b)=>E(b)-E(a));
  $('#vCount').textContent=rows.length+' selection'+(rows.length==1?'':'s');
  box.innerHTML=rows.length?'<div class="tw"><table><thead><tr><th class="l s">Date</th><th class="l s">League</th><th class="l s">Match</th><th class="l s">Pick</th><th class="s">Model</th><th class="s">Mkt</th><th class="s">Fair</th><th class="s">Price</th><th class="s">Edge</th><th class="s">Stake</th><th class="l">News</th><th></th></tr></thead><tbody>'+
-  rows.map(v=>`<tr><td class="l">${v.day}</td><td class="l">${D.lgnames[v.lg]||v.lg}</td><td class="l">${v.match}</td><td class="l">${v.sel}</td><td>${pc(v.p)}</td><td>${v.mp!=null?pc(v.mp):''}</td><td>${fo(v.p)}</td><td>${v.price.toFixed(2)}</td><td><span class="${v.edge>0?'pos':'neg'}">${(v.edge>0?'+':'')+(100*v.edge).toFixed(1)}%</span></td><td>${(100*v.stake).toFixed(1)}%</td><td class="l">${v.news||''}</td><td><a class="go" href="#" data-fx="${v.id}" data-mk="${v.mkkey}" data-pr="${v.price}">Check ›</a></td></tr>`).join('')+'</tbody></table></div>'
+  rows.map(v=>`<tr><td class="l">${v.day}</td><td class="l">${D.lgnames[v.lg]||v.lg}</td><td class="l">${v.match}</td><td class="l">${v.sel}</td><td>${pc(P(v))}</td><td>${v.mp!=null?pc(v.mp):''}</td><td>${fo(P(v))}</td><td>${v.price.toFixed(2)}</td><td><span class="${E(v)>0?'pos':'neg'}">${(E(v)>0?'+':'')+(100*E(v)).toFixed(1)}%</span></td><td>${(100*S(v)).toFixed(1)}%</td><td class="l">${v.news||''}</td><td><a class="go" href="#" data-fx="${v.id}" data-mk="${v.mkkey}" data-pr="${v.price}">Check ›</a></td></tr>`).join('')+'</tbody></table></div>'
   :`<p class="note">${D.value.length?'No selections match these filters - lower the minimum edge.':'No bookmaker prices for the coming fixtures yet: football-data.co.uk publishes them a day or two before each round. Until then use the fair odds below and type the Bet365 price into the Match tab.'}</p>`}
-$$('#vMin,#vBook,#vMk,#vLg,#vQ,#vMax').forEach(c=>c&&c.addEventListener('input',renderValue));renderValue();
+$$('#vMin,#vBook,#vMode,#vMk,#vLg,#vQ,#vMax').forEach(c=>c&&c.addEventListener('input',renderValue));renderValue();
 """
 
 
@@ -181,6 +183,8 @@ def _fmt(v, kind):
         return f"{v:.2f}"
     if kind == "f1":
         return f"{v:.1f}"
+    if kind == "f3":
+        return f"{v:.3f}"
     if kind == "int":
         return f"{int(round(v))}"
     if kind == "html":
@@ -256,6 +260,19 @@ def tickets_section() -> str:
     return "".join(out)
 
 
+MODEL_WEIGHT = 0.3   # backtests: the market is sharper than the model, so lean on it
+
+
+def _pool(p, q, w: float = MODEL_WEIGHT):
+    """Binary log-linear pool of model probability p and margin-free market probability q."""
+    if q is None or pd.isna(q) or not 0 < q < 1:
+        return None
+    p = min(max(float(p), 1e-6), 1 - 1e-6)
+    a = p ** w * q ** (1 - w)
+    b = (1 - p) ** w * (1 - q) ** (1 - w)
+    return a / (a + b)
+
+
 def _json(obj) -> str:
     import json
     def conv(o):
@@ -325,7 +342,7 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                     "day": pd.Timestamp(v.date).strftime("%a %d %b"), "match": v.match,
                     "sel": v.selection if v.market == "1X2" else v.market, "market": v.market,
                     "p": v.model_p, "mp": v.market_p, "price": v.price, "edge": v.edge, "stake": v.stake_pct,
-                    "news": v.team_news})
+                    "pb": _pool(v.model_p, v.market_p), "news": v.team_news})
 
     # ------------------------------------------------------------------ Value
     mk_opts = "".join(f'<option value="{m}">{m}</option>' for m in ("1X2", "Over 2.5", "Under 2.5"))
@@ -337,12 +354,18 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
             fair[f"fair_{k}"] = 1 / fair[k]
         fair["league_name"] = fair.league.map(ln)
     sections["Value"] = (
-        '<p class="note">Model probability × price − 1 = edge. Expected goals already allow for listed '
+        '<div class="card"><p><b>Read this first.</b> Backtests (Backtest tab) show the bookmakers&#39; '
+        "prices are sharper than this model in every league, and betting every raw 5%+ model edge lost money "
+        "last season. Market-adjusted mode blends 30% model / 70% market so only bets that still look good "
+        "survive - treat them as a shortlist to research (team news, line-ups), not as tips.</p></div>"
+        '<p class="note">Probability × price − 1 = edge. Expected goals already allow for listed '
         "injuries and suspensions. Bet365 prices are football-data's snapshot (usually a day or two before "
         "kick-off) - always check the live price; tap <b>Check ›</b> to re-price any bet in the Match tab.</p>"
         f'<div class="fbar{"" if has_prices else " hide"}"><label>Min edge %<input id="vMin" type="number" value="{int(min_edge * 100)}" step="1"></label>'
         '<label>Prices<select id="vBook"><option value="b365">Bet365</option><option value="best">Best available</option>'
         '</select></label>'
+        '<label>Probability<select id="vMode"><option value="adj">Market-adjusted (recommended)</option>'
+        '<option value="raw">Model only</option></select></label>'
         f'<label>Market<select id="vMk"><option value="">All</option>{mk_opts}</select></label>'
         f'<label>League<select id="vLg"><option value="">All</option>{lgo}</select></label>'
         '<label>Max odds<input id="vMax" type="number" value="8" step="0.5"></label>'
@@ -520,9 +543,30 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                                    ("xg_sources", "xG from", "text"), ("with_big_chances", "Big chances", "int"),
                                    ("with_shots", "Shots", "int"), ("with_odds", "Odds", "int")])
 
-    # Match tab second, right after Value
-    keys = list(sections)
-    keys.insert(1, keys.pop(keys.index("Match")))
+    # ------------------------------------------------------------------ phone extras (Team / Props / My bets / Backtest)
+    from . import mobile
+    data["teams"] = mobile.team_data(frame, data["names"], ratings)
+    for t in data["teams"]:
+        data["names"].setdefault(t, nm(t))
+    data["upcoming"] = mobile.upcoming(frame)
+    for lst in data["upcoming"].values():
+        for u in lst:
+            data["names"].setdefault(u[2], nm(u[2]))
+    for d in data["teams"].values():
+        for m in d["m"]:
+            data["names"].setdefault(m[2], nm(m[2]))
+    data["results"] = mobile.results(frame)
+    data["props"] = mobile.props_data(con, pred, frame, ratings, names)
+    sections["Team"] = mobile.TEAM_HTML
+    sections["Props"] = mobile.PROPS_HTML
+    sections["My bets"] = mobile.BETS_HTML
+    bt_season = cur - 1
+    sections["Backtest"] = mobile.backtest_section(mobile.backtest_rows(con, frame, order, bt_season), bt_season)
+    icons = mobile.write_icon(out.parent)
+
+    # tab order: the things you use on a phone first
+    first = ["Value", "Match", "Fixtures", "Team", "Props", "My bets"]
+    keys = [k for k in first if k in sections] + [k for k in sections if k not in first]
     sections = {k: sections[k] for k in keys}
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%a %d %b %Y, %H:%M UTC")
     ids = {k: ("mxsec" if k == "Match" else f"s{i}") for i, k in enumerate(sections)}
@@ -532,11 +576,11 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                    for i, (k, v) in enumerate(sections.items()))
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Footy Edge</title>
-<meta name="apple-mobile-web-app-capable" content="yes"><style>{CSS}</style></head><body>
+<meta name="apple-mobile-web-app-capable" content="yes">{mobile.HEAD if icons else ""}<style>{CSS}</style></head><body>
 <header><h1>⚽ Footy Edge</h1><div class="sub">Updated {stamp} · {config.season_label(cur)}</div></header>
 <nav><div>{nav}</div></nav><main>{body}</main>
 <footer>Probabilities, not certainties. Bet only what you can afford to lose · BeGambleAware.org · 0808 8020 133</footer>
 <script type="application/json" id="footy-data">{_json(data)}</script>
-<script>{JS}</script></body></html>"""
+<script>{JS}{mobile.JS}</script></body></html>"""
     out.write_text(page, encoding="utf-8")
     return out

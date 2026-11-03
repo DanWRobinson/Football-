@@ -101,3 +101,19 @@ def test_belgian_aliases():
     from footy.names import canonical
     assert canonical("OH Leuven") == canonical("Oud-Heverlee Leuven")
     assert canonical("Sporting Charleroi") == canonical("Charleroi")
+
+
+def test_fotmob_player_shots_per90_converted(monkeypatch):
+    src = fotmob.FotMob()
+    monkeypatch.setattr(src, "league_payload", lambda lg, s: {"x": "/stats/47/season/123/expected_goals.json"})
+
+    def fake_get(url, **k):
+        stat = url.rsplit("/", 1)[-1].replace(".json", "")
+        val = {"expected_goals": 6.6, "total_scoring_att": 3.8, "ontarget_scoring_att": 1.8}.get(stat)
+        if val is None:
+            raise fotmob.FetchError("nope")
+        return {"TopLists": [{"StatList": [{"ParticipantName": "Erling Haaland", "ParticiantId": 1, "TeamName": "Man City",
+                                             "StatValue": val, "MinutesPlayed": 810, "MatchesPlayed": 9}]}]}
+    monkeypatch.setattr(fotmob, "get", fake_get)
+    rec = src.players(config.league("E0"), 2026)[0]
+    assert rec.stats["xg"] == 6.6 and rec.stats["shots"] == 34.2 and rec.stats["sot"] == 16.2
