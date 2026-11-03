@@ -188,10 +188,13 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
                         db.log_source(con, sname, key, season, True, len(recs), msg)
                         echo(f"  [{key} {config.season_label(season)}] {sname}: {msg}")
                         if players and sname != "football_data":
-                            prs = src.players(lg, season)
-                            if prs:
-                                echo(f"  [{key} {config.season_label(season)}] {sname}: "
-                                     f"{store_players(con, sname, prs)} players")
+                            try:
+                                prs = src.players(lg, season)
+                                if prs:
+                                    echo(f"  [{key} {config.season_label(season)}] {sname}: "
+                                         f"{store_players(con, sname, prs)} players")
+                            except Exception as e:
+                                echo(f"  [{key} {config.season_label(season)}] {sname}: players FAILED {e}")
                     except Exception as e:  # keep going: one broken source shouldn't stop the rest
                         db.log_source(con, sname, key, season, False, 0, repr(e))
                         echo(f"  [{key} {config.season_label(season)}] {sname}: FAILED {e}")

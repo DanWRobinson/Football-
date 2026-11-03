@@ -68,3 +68,36 @@ def test_api_football_stats():
     h, a = api_football.parse_statistics(payload)
     assert h == {"xg": 1.21, "possession": 61.0, "shots": 14.0}
     assert a == {"xg": 0.70}
+
+
+def test_fotmob_tolerates_odd_shapes():
+    payload = {"content": {"stats": [{"key": ["not", "a", "string"], "stats": [1, 2]},
+                                     {"key": "expected_goals", "stats": ["1.2", "0.4"]},
+                                     {"Referee": {"text": ["x"]}}]}}
+    h, a = fotmob.extract_match_stats(payload)
+    assert h == {"xg": 1.2} and a == {"xg": 0.4}
+    assert fotmob.extract_referee(payload) is None
+
+
+def test_dead_host_fails_fast(monkeypatch):
+    import requests
+    from footy.sources import http
+    calls = []
+
+    def boom(*a, **k):
+        calls.append(1)
+        raise requests.ConnectTimeout("nope")
+    monkeypatch.setattr(http.requests, "get", boom)
+    monkeypatch.setattr(http.time, "sleep", lambda s: None)
+    monkeypatch.setattr(http, "_host_failures", {})
+    import pytest as _pt
+    for _ in range(3):
+        with _pt.raises(http.FetchError):
+            http.get("https://blocked.example/x", ttl=0)
+    assert len(calls) == 3   # first call burns the 3 strikes, later calls never touch the network
+
+
+def test_belgian_aliases():
+    from footy.names import canonical
+    assert canonical("OH Leuven") == canonical("Oud-Heverlee Leuven")
+    assert canonical("Sporting Charleroi") == canonical("Charleroi")

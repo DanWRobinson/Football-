@@ -26,6 +26,12 @@ class FetchError(RuntimeError):
     pass
 
 
+# circuit breaker: after repeated connection failures a host is treated as unreachable for the
+# rest of the run, so a blocked site (e.g. Understat from cloud IPs) costs seconds, not half an hour
+_host_failures: dict[str, int] = {}
+DEAD_AFTER = 3
+
+
 def _cache_path(url: str, params: dict | None) -> Path:
     key = url + "?" + json.dumps(params or {}, sort_keys=True)
     h = hashlib.sha1(key.encode()).hexdigest()
@@ -33,7 +39,7 @@ def _cache_path(url: str, params: dict | None) -> Path:
 
 
 def get(url: str, *, params: dict | None = None, headers: dict | None = None,
-        ttl: float = 6 * 3600, as_json: bool = False, retries: int = 3, timeout: float = 30):
+        ttl: float = 6 * 3600, as_json: bool = False, retries: int = 3, timeout=(10, 30)):
     """GET with cache. ttl in seconds (0 disables cache read, -1 = forever)."""
     cp = _cache_path(url, params)
     if ttl != 0 and cp.exists():
@@ -43,6 +49,8 @@ def get(url: str, *, params: dict | None = None, headers: dict | None = None,
             return json.loads(text) if as_json else text
 
     host = urlparse(url).netloc
+    if _host_failures.get(host, 0) >= DEAD_AFTER:
+        raise FetchError(f"{url}: {host} unreachable earlier in this run - skipped")
     hdrs = {"User-Agent": UA, "Accept-Language": "en-GB,en;q=0.9"}
     hdrs.update(headers or {})
     err: Exception | None = None
@@ -63,7 +71,15 @@ def get(url: str, *, params: dict | None = None, headers: dict | None = None,
                 text = r.content.decode("latin-1")
             cp.parent.mkdir(parents=True, exist_ok=True)
             cp.write_text(text, encoding="utf-8")
+            _host_failures[host] = 0
             return json.loads(text) if as_json else text
+        except (requests.ConnectionError, requests.Timeout) as e:
+            err = e
+            _host_failures[host] = _host_failures.get(host, 0) + 1
+            if _host_failures[host] >= DEAD_AFTER:
+                break
+            time.sleep(2 ** attempt)
+            continue
         except (requests.RequestException, FetchError, UnicodeDecodeError) as e:
             err = e
             if isinstance(e, FetchError) and "for" in str(e):  # 4xx: don't retry

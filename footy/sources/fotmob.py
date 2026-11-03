@@ -89,7 +89,7 @@ def extract_match_stats(payload) -> tuple[dict, dict]:
     for node in _walk(payload):
         key = node.get("key")
         st = node.get("stats")
-        if key in STAT_KEYS and isinstance(st, list) and len(st) == 2:
+        if isinstance(key, str) and key in STAT_KEYS and isinstance(st, list) and len(st) == 2:
             metric = STAT_KEYS[key]
             h, a = _num(st[0]), _num(st[1])
             if h is not None and metric not in home:
@@ -102,8 +102,8 @@ def extract_match_stats(payload) -> tuple[dict, dict]:
 def extract_referee(payload) -> str | None:
     for node in _walk(payload):
         ref = node.get("Referee") or node.get("referee")
-        if isinstance(ref, dict) and ref.get("text"):
-            return str(ref["text"]).strip()
+        if isinstance(ref, dict) and isinstance(ref.get("text"), str) and ref["text"].strip():
+            return ref["text"].strip()
     return None
 
 
@@ -193,10 +193,15 @@ class FotMob(Source):
     def _records(self, lg: League, season: int, with_stats: bool, with_news: bool = False) -> list[MatchRecord]:
         out, fetched = [], 0
         for m in extract_league_matches(self.league_payload(lg, season)):
+            if not isinstance(m, dict):
+                continue
             status = m.get("status") or {}
             finished = bool(status.get("finished")) and not status.get("cancelled")
             date, ko = _utc_to_date(status.get("utcTime") or m.get("utcTime", ""))
-            home, away = m.get("home", {}), m.get("away", {})
+            home = m.get("home") if isinstance(m.get("home"), dict) else {}
+            away = m.get("away") if isinstance(m.get("away"), dict) else {}
+            if not isinstance(home.get("name"), str) or not isinstance(away.get("name"), str):
+                continue
             rec = MatchRecord(league=lg.key, season=season, date=date, kickoff=ko,
                               home=home.get("name", ""), away=away.get("name", ""),
                               source_id=str(m.get("id")))
@@ -215,13 +220,15 @@ class FotMob(Source):
                         fetched += 1
                     except FetchError:
                         pass
+                    except Exception:  # unexpected page shape: skip this match, keep the season
+                        fetched += 1
             elif with_news and _within_days(date, 8):
                 # upcoming fixture: team news (injuries/suspensions) and referee appointment
                 try:
                     payload = self.match_payload(rec.source_id, False)
                     rec.unavailable = extract_unavailable(payload)
                     rec.referee = extract_referee(payload)
-                except FetchError:
+                except Exception:
                     pass
             out.append(rec)
         return out
@@ -249,7 +256,7 @@ class FotMob(Source):
             except (FetchError, ValueError):
                 continue
             for node in _walk(data):
-                if "ParticipantName" in node and "StatValue" in node:
+                if isinstance(node.get("ParticipantName"), str) and "StatValue" in node:
                     pid = str(node.get("ParticiantId") or node.get("ParticipantId") or node["ParticipantName"])
                     rec = merged.setdefault(pid, PlayerRecord(
                         league=lg.key, season=season, player_id=pid,
