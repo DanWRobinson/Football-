@@ -238,6 +238,10 @@ function matrix(lh,la,rho){const n=10,ph=pmf(lh,n),pa=pmf(la,n);const M=[];let s
   v=Math.max(v,0);M[i].push(v);s+=v}}return M.map(r=>r.map(v=>v/s))}
 function sumM(M,f){let s=0;for(let i=0;i<M.length;i++)for(let j=0;j<M.length;j++)if(f(i,j))s+=M[i][j];return s}
 /* each market: k key, g group, l label, p prob, f(i,j) scoreline predicate (if goal-based), s(r) settle from [hg,ag,hht,aht,hc,ac] */
+function ahRes(d,l){/* d = margin from the backed side's view, l = its handicap -> W/HW/P/HL/L */
+ const one=x=>x>0?1:x<0?-1:0;const q=Math.round(l*4);
+ if(Math.abs(q)%2===1){const a=one(d+l-0.25),b=one(d+l+0.25),t=a+b;return t===2?'W':t===1?'HW':t===0?'P':t===-1?'HL':'L'}
+ const r=one(d+l);return r>0?'W':r<0?'L':'P'}
 function marketList(c){const M=matrix(c.lh,c.la,c.rho),hn=c.hn,an=c.an,out=[];
  const S=(k,g,l,f)=>out.push({k,g,l,f,p:sumM(M,f),s:r=>f(r[0],r[1])});
  S('H','Result',hn+' win',(i,j)=>i>j);S('D','Result','Draw',(i,j)=>i==j);S('A','Result',an+' win',(i,j)=>i<j);
@@ -250,7 +254,20 @@ function marketList(c){const M=matrix(c.lh,c.la,c.rho),hn=c.hn,an=c.an,out=[];
  for(const l of [0.5,1.5,2.5]){S('H_O'+l,'Team goals',hn+' over '+l,(i,j)=>i>l);S('A_O'+l,'Team goals',an+' over '+l,(i,j)=>j>l)}
  S('H_CS','Team goals',hn+' clean sheet',(i,j)=>j==0);S('A_CS','Team goals',an+' clean sheet',(i,j)=>i==0);
  S('H_WTN','Team goals',hn+' win to nil',(i,j)=>i>j&&j==0);S('A_WTN','Team goals',an+' win to nil',(i,j)=>j>i&&i==0);
- for(const l of [-2.5,-1.5,-0.5,0.5,1.5]){const t=(l>0?'+':'')+l;S('AH'+t,'Handicap',hn+' '+t,(i,j)=>i-j+l>0);S('AHA'+(-l>0?'+':'')+(-l),'Handicap',an+' '+(-l>0?'+':'')+(-l),(i,j)=>j-i-l>0)}
+ /* Asian handicaps -2.5..+2.5 in quarter steps. Half lines can't push; whole lines push on the exact margin;
+    quarter lines split the stake across the two neighbouring lines (half win / half loss / half refund).
+    p is the win chance with refunds taken out, so fair odds = 1/p and edge = p x odds - 1 stay correct. */
+ const diff={};for(let i=0;i<M.length;i++)for(let j=0;j<M.length;j++)diff[i-j]=(diff[i-j]||0)+M[i][j];
+ const ahLabel=l=>l===0?'0':(l>0?'+':'')+l;
+ for(let q=-10;q<=10;q++){const l=q/4;
+  for(const side of ['H','A']){const sign=side==='H'?1:-1,name=side==='H'?hn:an;
+   const o={W:0,HW:0,P:0,HL:0,L:0};for(const d in diff)o[ahRes(sign*Number(d),l)]+=diff[d];
+   const a=o.W+o.HW/2,b=o.L+o.HL/2;
+   out.push({k:(side==='H'?'AH':'AHA')+ahLabel(l),g:'Handicap',l:name+' '+ahLabel(l)+(Math.abs(q)%2===1?'':Number.isInteger(l)?' (refund if level)':''),
+    p:a/(a+b),refund:o.P+o.HW/2+o.HL/2,
+    /* only half lines (x.5) can be priced inside a same-game builder - the others can refund */
+    f:Math.abs(q)%4===2?((i,j)=>sign*(i-j)+l>0):undefined,
+    s:r=>({W:true,L:false,P:null,HW:'hw',HL:'hl'}[ahRes(sign*(r[0]-r[1]),l)])})}}
  const h1=c.h1||0.44,l1=(c.lh+c.la)*h1,l2=(c.lh+c.la)*(1-h1),P1=matrix(c.lh*h1,c.la*h1,0);
  const sumP=f=>sumM(P1,f);
  out.push({k:'1H_H',g:'Halves',l:'Half-time: '+hn,p:sumP((i,j)=>i>j),s:r=>r[2]==null?null:r[2]>r[3]});
@@ -316,13 +333,15 @@ function render(){const[f,c]=curCtx();CUR=f;MK=marketList(c);const g=k=>MK.find(
  const groups=[...new Set(MK.map(m=>m.g))];if(!groups.includes(GRP))GRP='Result';
  $('#mdGroups').innerHTML=groups.map(x=>`<button class="chip ${x===GRP?'on':''}" data-grp="${x}">${x}</button>`).join('');drawList();
  const cur=mx.M.value;mx.M.innerHTML=MK.map(m=>`<option value="${m.k}">${esc(m.l)}</option>`).join('');if(cur&&MK.find(m=>m.k===cur))mx.M.value=cur;price()}
+function canBuild(m){return !(m.g==='Handicap'&&!m.f)}
 function drawList(){const slip=LS.get('slip',[]),fid=CUR?CUR.id:'';$$('#mdGroups .chip').forEach(b=>b.classList.toggle('on',b.dataset.grp===GRP));
  let h=MK.filter(m=>m.g===GRP).map(m=>`<div class="mrow"><span class="l">${esc(m.l)}</span><span class="p">${pc(m.p)}</span><span class="o">${fo(m.p)}</span>
-  ${fid?`<button class="add ${slip.some(s=>s.id===fid&&s.mk===m.k)?'in':''}" data-add="${m.k}" data-fid="${fid}" aria-label="add to builder">+</button>`:''}</div>`).join('');
+  ${fid?(canBuild(m)?`<button class="add ${slip.some(s=>s.id===fid&&s.mk===m.k)?'in':''}" data-add="${m.k}" data-fid="${fid}" aria-label="add to builder">+</button>`:'<span style="width:34px"></span>'):''}</div>`).join('');
  if(GRP==='Scores'){const M=MK.M;let g='<div class="tw"><table class="sg"><thead><tr><th></th>'+[0,1,2,3,4,5].map(j=>`<th>${j}</th>`).join('')+'</tr></thead><tbody>';
   for(let i=0;i<=5;i++){g+=`<tr><th>${i}</th>`;for(let j=0;j<=5;j++)g+=`<td>${(100*M[i][j]).toFixed(1)}</td>`;g+='</tr>'}h=g+'</tbody></table></div><p class="note">Rows = home goals, columns = away goals (%).</p>'+h}
  $('#mdList').innerHTML='<div class="mrow sub"><span class="l">Market</span><span class="p">Prob.</span><span class="o">Fair</span>'+(fid?'<span style="width:34px"></span>':'')+'</div>'+h+
   (GRP==='Corners'?'<p class="note">Corners: team corner rates vs league average, negative binomial (checked out-of-sample this season).</p>':'')+
+  (GRP==='Handicap'?'<p class="note">Whole lines (0, ±1, ±2) refund your stake on that exact margin; quarter lines (±0.25, ±0.75...) split it across the two neighbouring lines, so you can half-win or half-lose. Prob. is the win chance with refunds taken out, so fair odds = 1 ÷ Prob. Only ±0.5 / ±1.5 / ±2.5 lines can go in the builder.</p>':'')+
   (GRP==='Halves'?`<p class="note">Halves: ${pc((D.h1||{})[mx.L.value]||0.44)} of goals in this league come before half-time.</p>`:'')}
 $('#mdGroups')&&$('#mdGroups').addEventListener('click',e=>{const b=e.target.closest('[data-grp]');if(!b)return;GRP=b.dataset.grp;LS.set('mdGrp',GRP);drawList()});
 function price(){const m=MK.find(x=>x.k===mx.M.value);const o=parseFloat(mx.P.value);const out=$('#mxEdge');
@@ -382,20 +401,23 @@ function settleLeg(id,mk){const r=(D.results||{})[id];if(!r)return undefined;
  _DUMMY=_DUMMY||marketList({lh:1.4,la:1.2,rho:0,hn:'',an:'',ch:5,ca:4});const m=_DUMMY.find(x=>x.k===mk);if(!m)return undefined;
  const v=m.s(r);return v==null?null:v}
 function settle(b){if(b.res)return b;const legs=b.legs||[{id:b.id,mk:b.mk}];let all=true,anyVoid=false;
+ if(!b.legs){const v=settleLeg(b.id,b.mk);if(v===undefined)return b;const r=(D.results||{})[b.id];const sc=r?r[0]+'-'+r[1]:'';
+  return{...b,res:v===null?'void':v==='hw'?'half-won':v==='hl'?'half-lost':v?'won':'lost',score:sc}}
  for(const l of legs){const v=settleLeg(l.id,l.mk);if(v===undefined)return b;if(v===null){anyVoid=true;continue}if(!v){const r=(D.results||{})[l.id];return{...b,res:'lost',score:r?r[0]+'-'+r[1]:''}}}
  const r=(D.results||{})[legs[0].id];return{...b,res:anyVoid&&legs.length==1?'void':'won',score:legs.length==1&&r?r[0]+'-'+r[1]:''}}
 function clvOf(b){if(b.legs)return null;const c=((D.closing||{})[b.id]||{})[b.mk];return c?b.odds/c-1:null}
 function drawBets(){const list=$('#btList');if(!list)return;let bets=loadBets().map(settle);saveBets(bets);
- const pl=b=>b.res==='won'?b.stake*(b.odds-1):b.res==='lost'?-b.stake:0;const st=bets.filter(b=>b.res&&b.res!=='void');
+ const pl=b=>b.res==='won'?b.stake*(b.odds-1):b.res==='half-won'?b.stake*(b.odds-1)/2:b.res==='lost'?-b.stake:b.res==='half-lost'?-b.stake/2:0;
+ const st=bets.filter(b=>b.res&&b.res!=='void');
  const staked=st.reduce((a,b)=>a+b.stake,0),profit=st.reduce((a,b)=>a+pl(b),0),exp=bets.reduce((a,b)=>a+b.stake*(b.p*b.odds-1),0);
  const cl=bets.map(clvOf).filter(x=>x!=null),avgC=cl.length?cl.reduce((a,b)=>a+b,0)/cl.length:null;
  const card=(l,v,s)=>`<div class="mk"><span>${l}</span><b>${v}</b><span>${s||''}</span></div>`;
  $('#btSum').innerHTML=card('Profit',(profit>=0?'+':'')+profit.toFixed(2),`${st.length} settled · ${bets.filter(b=>!b.res).length} open`)+
-  card('ROI',staked?((profit>=0?'+':'')+(100*profit/staked).toFixed(1)+'%'):'-',`${st.filter(b=>b.res==='won').length}/${st.length} won`)+
+  card('ROI',staked?((profit>=0?'+':'')+(100*profit/staked).toFixed(1)+'%'):'-',`${st.filter(b=>b.res==='won'||b.res==='half-won').length}/${st.length} won`)+
   card('Avg CLV',avgC==null?'-':((avgC>=0?'+':'')+(100*avgC).toFixed(1)+'%'),cl.length?`${cl.filter(x=>x>0).length}/${cl.length} beat the close`:'after kick-off')+
   card('Expected',(exp>=0?'+':'')+exp.toFixed(2),'from model edges');
  list.innerHTML=bets.length?bets.map((b,i)=>({b,i})).reverse().map(({b,i})=>{const c=clvOf(b);return`<div class="fx"><div class="meta"><span>${esc(b.day||'')} · ${esc(b.match||'')}</span>
-  <span class="${b.res==='won'?'pos':b.res==='lost'?'neg':''}">${b.res?(b.res+(b.score?' '+b.score:'')):'open'}</span></div>
+  <span class="${/won/.test(b.res||'')?'pos':/lost/.test(b.res||'')?'neg':''}">${b.res?(b.res+(b.score?' '+b.score:'')):'open'}</span></div>
   <div class="tm"><span class="nm">${esc(b.label)}</span><span class="p">${b.odds.toFixed(2)}</span><a class="go" href="#" data-del="${i}" style="margin-left:8px">✕</a></div>
   ${b.legs?`<div class="sub">${b.legs.map(l=>esc(l.label)+' ('+esc(l.match)+')').join(' · ')}</div>`:''}
   <div class="foot"><span>Stake <b>${b.stake}</b></span><span>Edge <b>${(100*(b.p*b.odds-1)).toFixed(0)}%</b></span>${c!=null?`<span>CLV <b class="${c>0?'pos':'neg'}">${(c>0?'+':'')+(100*c).toFixed(1)}%</b></span>`:''}</div></div>`}).join('')
@@ -409,7 +431,8 @@ function drawBets(){const list=$('#btList');if(!list)return;let bets=loadBets().
   if(!m||!(o>1)){$('#mxTracked').textContent='Type the odds first';return}if(!CUR){$('#mxTracked').textContent='Pick a fixture to track a bet';return}
   const b=loadBets();b.push({id:CUR.id,day:CUR.day,match:nm(CUR.h)+' v '+nm(CUR.a),mk:m.k,label:m.l,p:m.p,odds:o,stake:s,at:new Date().toISOString()});
   saveBets(b);$('#mxTracked').textContent='✓ saved to My bets'};
- $('#mxSlip').onclick=()=>{if(!CUR){$('#mxTracked').textContent='Pick a fixture first';return}toggleSlip(CUR.id,mx.M.value);drawList();$('#mxTracked').textContent='✓ builder updated'}})();
+ $('#mxSlip').onclick=()=>{if(!CUR){$('#mxTracked').textContent='Pick a fixture first';return}const mm=MK.find(x=>x.k===mx.M.value);if(mm&&!canBuild(mm)){$('#mxTracked').textContent='Lines that can refund (whole/quarter handicaps) can\'t go in the builder';return}
+  toggleSlip(CUR.id,mx.M.value);drawList();$('#mxTracked').textContent='✓ builder updated'}})();
 
 /* ---------- Today */
 function drawToday(){const box=$('#tdOut');if(!box)return;let h='';const fav=D.fav;
@@ -431,7 +454,7 @@ function drawToday(){const box=$('#tdOut');if(!box)return;let h='';const fav=D.f
  const adj=v=>v.pb!=null?v.pb:v.p;const short=(D.value||[]).filter(v=>v.book==='b365').map(v=>({...v,e:adj(v)*v.price-1})).filter(v=>v.e>=0.03).sort((a,b)=>b.e-a.e).slice(0,3);
  h+=`<div class="card"><h2>Shortlist <span class="sub">market-adjusted, Bet365</span></h2>`+(short.length?short.map(v=>`<div class="mrow" data-fx="${v.id}" data-mk="${v.mkkey}" data-pr="${v.price}" style="cursor:pointer"><span class="l">${esc(v.sel)}<br><span class="sub">${esc(v.match)} · ${esc(v.day)}</span></span><span class="p">${v.price.toFixed(2)}</span><span class="o pos">+${(100*v.e).toFixed(0)}%</span></div>`).join('')
   :`<p class="note">${(D.value||[]).length?'Nothing clears a 3% market-adjusted edge right now.':'No Bet365 prices for the next round yet - they usually appear a day or two before kick-off.'}</p>`)+`<p style="margin:6px 0 0"><a class="go" href="#" data-go="value">All value ›</a></p></div>`;
- const bets=loadBets().map(settle),open=bets.filter(b=>!b.res);const st=bets.filter(b=>b.res&&b.res!=='void');const pr=st.reduce((a,b)=>a+(b.res==='won'?b.stake*(b.odds-1):-b.stake),0);
+ const bets=loadBets().map(settle),open=bets.filter(b=>!b.res);const st=bets.filter(b=>b.res&&b.res!=='void');const pr=st.reduce((a,b)=>a+(b.res==='won'?b.stake*(b.odds-1):b.res==='half-won'?b.stake*(b.odds-1)/2:b.res==='half-lost'?-b.stake/2:-b.stake),0);
  if(bets.length)h+=`<div class="card" data-go="mybets" style="cursor:pointer"><h2>My bets</h2><div class="kpi"><div class="mk"><span>Open</span><b>${open.length}</b></div><div class="mk"><span>Profit</span><b class="${pr>=0?'pos':'neg'}">${(pr>=0?'+':'')+pr.toFixed(2)}</b></div></div></div>`;
  const big=D.fixtures.filter(f=>['E0','UCL','UEL','SP1','I1','D1','F1'].includes(f.lg)).slice(0,6);
  if(big.length)h+='<h2>Coming up</h2>'+big.map(fxCard).join('')+'<p><a class="go" href="#" data-go="matches">All matches ›</a></p>';
