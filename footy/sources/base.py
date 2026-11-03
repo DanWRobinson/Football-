@@ -27,6 +27,8 @@ class MatchRecord:
     odds: list[tuple] = field(default_factory=list)  # (market, selection, book, price, line)
     source_id: str | None = None
     referee: str | None = None
+    home_ext: str | None = None      # provider's team id (used for club badges)
+    away_ext: str | None = None
     #: missing players: (side 'h'/'a', player name, status 'out'/'doubt', reason, expected return)
     unavailable: list[tuple] = field(default_factory=list)
 

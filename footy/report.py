@@ -317,6 +317,46 @@ def my_squad_html(m: dict) -> str:
     return "".join(html_)
 
 
+def closing_odds(con, frame: pd.DataFrame, days: int = 60) -> dict:
+    """match_id -> margin-free closing odds per market (for closing-line value on tracked bets)."""
+    from .models.value import devig
+    since = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
+    ids = list(frame[(frame.status == "played") & (frame.date >= since)].match_id)
+    od = db.odds_wide(con, ids)
+    out = {}
+    for _, r in od.iterrows():
+        d = {}
+        for book in ("pinnacle_close", "avg_close", "b365_close"):
+            c = [f"1X2_{s}_{book}" for s in "HDA"]
+            if not d and all(x in r and pd.notna(r[x]) for x in c):
+                p = devig([r[x] for x in c])
+                d.update(H=1 / p[0], D=1 / p[1], A=1 / p[2])
+        for book in ("pinnacle_close", "avg_close", "b365_close"):
+            c = [f"OU2.5_{s}_{book}" for s in "OU"]
+            if "O2.5" not in d and all(x in r and pd.notna(r[x]) for x in c):
+                p = devig([r[x] for x in c])
+                d.update({"O2.5": 1 / p[0], "U2.5": 1 / p[1]})
+        if d:
+            out[r.match_id] = d
+    return out
+
+
+def fpl_summary(con, m: dict) -> dict:
+    sq = m["squad"]
+    ev = db.read_sql(con, "SELECT id, deadline FROM fpl_events WHERE is_next=1")
+    name = lambda pid: sq.loc[sq.id == pid, "player"].iloc[0] if pid is not None and (sq.id == pid).any() else None  # noqa: E731
+    flagged = [r.player for r in sq.itertuples() if r.status not in ("a", None) or
+               (pd.notna(r.chance_next) and r.chance_next < 75)]
+    changes = [r.player for r in sq.itertuples() if r.start_now != r.start_best]
+    mv = m["moves"]
+    move = f"{mv.out.iloc[0]} → {mv.inn.iloc[0]}" if not mv.empty else None
+    return {"gw": int(ev.id.iloc[0]) if len(ev) else None, "deadline": ev.deadline.iloc[0] if len(ev) else None,
+            "captain": name(m["captain"]), "vice": name(m["vice"]), "now_pts": m["now_pts"], "best_pts": m["best_pts"],
+            "changes": (", ".join(changes) + " - swap in/out for the best XI") if changes else "",
+            "flagged": flagged, "move": move,
+            "move_gain": f"+{mv.gain.iloc[0]:.1f} pts over {m['horizon']} GWs" if not mv.empty else ""}
+
+
 def _json(obj) -> str:
     import json
     def conv(o):
@@ -357,6 +397,8 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
         pred["day"] = pred.date.dt.strftime("%a %d %b")
         pred["check"] = [f'<a class="go" href="#" data-fx="{html.escape(m)}">Check ›</a>' for m in pred.match_id]
         pred = pred.sort_values(["date", "kickoff", "league"], na_position="last")
+        from .models.corners import expected_corners
+        pred = expected_corners(pred, frame)
 
     # data for the in-page match explorer and value table
     from . import my as _my
@@ -377,6 +419,8 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
             data["fixtures"].append({
                 "id": r.match_id, "lg": r.league, "day": r.day, "h": r.home, "a": r.away,
                 "xh": r.xg_home, "xa": r.xg_away, "nh": r.get("news_home") or "", "na": r.get("news_away") or "",
+                "ko": r.kickoff if isinstance(r.kickoff, str) else None,
+                "ch": r.get("corners_h"), "ca": r.get("corners_a"),
                 "b365": {k: r.get(f"b365_{k}") for k in ("H", "D", "A", "O2.5", "U2.5")
                          if pd.notna(r.get(f"b365_{k}"))}})
             data["names"][r.home], data["names"][r.away] = r.home_name, r.away_name
@@ -459,7 +503,7 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                 ("A_CS", "A CS", "pct"), ("exp_cards", "Cards", "f1"), ("referee", "Referee", "text"),
                 ("news_home", "Home news", "text"), ("news_away", "Away news", "text"), ("check", "", "html")],
             attrs={"lg": "league"}) + "</details>")
-    sections["Fixtures"] = ('<div id="favCard"></div><p class="note">Model probabilities for the next week; "Mkt" = bookmaker odds '
+    sections["Fixtures"] = ('<p class="note">Model probabilities for the next week; "Mkt" = bookmaker odds '
                             "with the margin removed. Tap a column header to sort.</p>"
                             + fbar(lg_opts(pred.league if not pred.empty else []), placeholder="Search team")
                             + ("".join(fx_html) or '<p class="note">No upcoming fixtures.</p>'))
@@ -522,6 +566,7 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
         attrs={"lg": "lg"}))
 
     # ------------------------------------------------------------------ FPL
+    mine = None
     if "E0" in ratings:
         xp, tick = fpl.expected_points(con, ratings["E0"], 5)
         if not xp.empty:
@@ -593,7 +638,7 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                                    ("with_shots", "Shots", "int"), ("with_odds", "Odds", "int")])
 
     # ------------------------------------------------------------------ phone extras (Team / Props / My bets / Backtest)
-    from . import mobile
+    from . import mobile, ui
     data["teams"] = mobile.team_data(frame, data["names"], ratings)
     for t in data["teams"]:
         data["names"].setdefault(t, nm(t))
@@ -608,28 +653,32 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
     data["props"] = mobile.props_data(con, pred, frame, ratings, names)
     sections["Team"] = mobile.TEAM_HTML
     sections["Props"] = mobile.PROPS_HTML
-    sections["My bets"] = mobile.BETS_HTML
+    sections["My bets"] = ui.MYBETS_HTML
     bt_season = cur - 1
     sections["Backtest"] = mobile.backtest_section(mobile.backtest_rows(con, frame, order, bt_season), bt_season)
     icons = mobile.write_icon(out.parent)
 
-    # tab order: the things you use on a phone first
-    first = ["Value", "Match", "Fixtures", "Team", "Props", "My bets"]
-    keys = [k for k in first if k in sections] + [k for k in sections if k not in first]
-    sections = {k: sections[k] for k in keys}
-    stamp = dt.datetime.now(dt.timezone.utc).strftime("%a %d %b %Y, %H:%M UTC")
-    ids = {k: ("mxsec" if k == "Match" else f"s{i}") for i, k in enumerate(sections)}
-    nav = "".join(f'<button data-t="{ids[k]}" class="{"on" if i == 0 else ""}">{k}</button>'
-                  for i, k in enumerate(sections))
-    body = "".join(f'<section id="{ids[k]}" class="{"on" if i == 0 else ""}">{v}</section>'
-                   for i, (k, v) in enumerate(sections.items()))
-    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(_my.app_name())}</title>
-<meta name="apple-mobile-web-app-capable" content="yes">{mobile.head() if icons else ""}<style>{CSS}</style></head><body>
-<header><h1>⚽ {html.escape(_my.app_name())}</h1><div class="sub">Updated {stamp} · {config.season_label(cur)}</div></header>
-<nav><div>{nav}</div></nav><main>{body}</main>
-<footer>Probabilities, not certainties. Bet only what you can afford to lose · BeGambleAware.org · 0808 8020 133</footer>
-<script type="application/json" id="footy-data">{_json(data)}</script>
-<script>{JS}{mobile.JS}</script></body></html>"""
+    # extra data for the app screens
+    from .models.corners import first_half_share
+    data["h1"] = first_half_share(frame)
+    data["badges"] = {r[0]: r[1] for r in con.execute("SELECT team, ext_id FROM team_ext WHERE source='fotmob'")}
+    data["closing"] = closing_odds(con, frame)
+    data["fpl"] = fpl_summary(con, mine) if "E0" in ratings and mine else None
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%a %d %b, %H:%M UTC")
+    data["stamp"] = stamp
+    sections["Match"] = ui.MATCH_HTML
+    sections["Today"] = ui.TODAY_HTML
+    sections["Matches"] = ui.MATCHES_HTML
+    sections["Builder"] = ui.BUILDER_HTML
+    ids = {"Today": "today", "Matches": "matches", "Fixtures": "fixtures", "Match": "mxsec", "Value": "value",
+           "Builder": "builder", "My bets": "mybets", "FPL": "fpl", "Team": "team", "Props": "props",
+           "Tables": "tables", "Regression": "regression", "Cards": "cards", "Players": "players",
+           "Backtest": "backtest", "LFC tickets": "tickets", "Data": "data"}
+    by_id = {ids[k]: v for k, v in sections.items() if k in ids}
+    blurbs = {"team": "Form, xG trend, results", "props": "Scorers, shots, on target", "tables": "Table vs xG table",
+              "regression": "Who's riding luck", "cards": "Bookings & referees", "players": "xG / xA leaders",
+              "backtest": "How the model has done", "tickets": "LFC sale dates", "data": "Coverage by league"}
+    page = ui.page(_my.app_name(), mobile.head() if icons else "", by_id, _json(data), mobile.JS,
+                   "Updated " + stamp, blurbs)
     out.write_text(page, encoding="utf-8")
     return out

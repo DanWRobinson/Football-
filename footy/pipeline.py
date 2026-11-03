@@ -88,6 +88,9 @@ def store_matches(con, source: str, recs: list[MatchRecord], backbone: bool,
             stats["attached"] += 1
         if r.referee:
             con.execute("UPDATE matches SET referee=? WHERE match_id=?", (r.referee, mid))
+        for team_key, ext in ((hk, r.home_ext), (ak, r.away_ext)):
+            if ext:
+                con.execute("INSERT OR REPLACE INTO team_ext VALUES(?,?,?)", (source, team_key, ext))
         for side, player, status, reason, ret in r.unavailable:
             con.execute("INSERT OR REPLACE INTO availability VALUES(?,?,?,?,?,?,?,?,?)",
                         (r.league, hk if side == "h" else ak, player, status, reason, ret, source, mid,

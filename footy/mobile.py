@@ -75,7 +75,10 @@ def results(frame: pd.DataFrame, days: int = 60) -> dict:
     """match_id -> [home goals, away goals] for recent games (used to settle tracked bets)."""
     since = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
     p = frame[(frame.status == "played") & (frame.date >= since)].dropna(subset=["hg", "ag"])
-    return {m: [int(h), int(a)] for m, h, a in zip(p.match_id, p.hg, p.ag)}
+    iv = lambda v: None if v is None or v != v else int(v)  # noqa: E731
+    cols = [p.get(c, pd.Series([None] * len(p), index=p.index)) for c in ("h_ht_goals", "a_ht_goals", "h_corners", "a_corners")]
+    return {m: [int(h), int(a), iv(x), iv(y), iv(z), iv(w)]
+            for m, h, a, x, y, z, w in zip(p.match_id, p.hg, p.ag, *cols)}
 
 
 # ------------------------------------------------------------------ props
@@ -112,19 +115,22 @@ def backtest_rows(con, frame: pd.DataFrame, leagues: list[str], season: int) -> 
                 "at TEXT, PRIMARY KEY (league, season))")
     rows = []
     cfg = config.leagues()
+    # cached results are only valid for the model settings they were computed with
+    model_version = json.dumps(config.model_settings(), sort_keys=True)
     for lg in leagues:
         if lg in cfg and cfg[lg].is_europe:
             continue
         hit = con.execute("SELECT summary FROM backtest_cache WHERE league=? AND season=?", (lg, season)).fetchone()
-        if hit:
-            summ = json.loads(hit[0])
+        summ = json.loads(hit[0]) if hit else None
+        if summ is not None and summ.get("_model") == model_version:
+            summ = {k: v for k, v in summ.items() if k != "_model"}
         else:
             try:
                 _, summ = backtest.run(con, frame, lg, season)
             except Exception:  # noqa: BLE001 - a league with odd data shouldn't stop the page
                 summ = {}
             con.execute("INSERT OR REPLACE INTO backtest_cache VALUES(?,?,?,?)",
-                        (lg, season, json.dumps(summ), db.now_iso()))
+                        (lg, season, json.dumps({**summ, "_model": model_version}), db.now_iso()))
             con.commit()
         if summ:
             rows.append({"league": cfg[lg].name if lg in cfg else lg, **summ})
@@ -224,19 +230,6 @@ JS = r"""
  T.addEventListener('change',()=>{try{localStorage.setItem('team',T.value)}catch(e){}});
 })();
 
-/* ---------- favourite team card on Fixtures */
-(()=>{const box=$('#favCard'),t=D.fav;if(!box||!t||!D.teams[t])return;const d=D.teams[t],up=(D.upcoming||{})[t]||[];
- const last=d.m.slice(-5).map(x=>x[4]>x[5]?'<i class="pos">W</i>':x[4]==x[5]?'<i>D</i>':'<i class="neg">L</i>').join('');
- let h=`<div class="card"><h2>${nm(t)}</h2><p class="note">Form ${last}</p>`;
- const f=up.length?D.fixtures.find(x=>x.id===up[0][4]):null;
- if(f){const M=matrix(f.xh,f.xa,(D.ratings[f.lg]||{}).rho||-0.05),mk=markets(M,nm(f.h),nm(f.a));const g=k=>mk.find(x=>x[0]===k)[2];
-  h+=`<p><b>${f.day} · ${nm(f.h)} v ${nm(f.a)}</b> <span class="sub">${D.lgnames[f.lg]||f.lg}</span></p><div class="grid">`+
-   [['H',nm(f.h)],['D','Draw'],['A',nm(f.a)],['O2.5','Over 2.5'],['BTTS','BTTS']].map(([k,l])=>`<div class="mk"><span>${l}</span><b>${pc(g(k))}</b><span>fair ${fo(g(k))}</span></div>`).join('')+
-   `</div><p><a class="go" href="#" data-fx="${f.id}">Open in Match tab ›</a>${(f.nh||f.na)?` <span class="sub">${[f.nh,f.na].filter(Boolean).join(' · ')}</span>`:''}</p>`}
- else if(up.length)h+=`<p>Next: ${up[0][0]} ${up[0][3]=='H'?'v':'@'} ${nm(up[0][2])} <span class="sub">(${D.lgnames[up[0][1]]||up[0][1]})</span></p>`;
- if(up.length>1)h+='<p class="note">Then: '+up.slice(1,4).map(u=>`${u[0]} ${u[3]=='H'?'v':'@'} ${nm(u[2])}`).join(' · ')+'</p>';
- box.innerHTML=h+'</div>'})();
-
 /* ---------- Props tab */
 (()=>{const box=$('#ppOut');if(!box)return;const lg=$('#ppLg');
  lg.innerHTML+=([...new Set(D.props.map(p=>p[1]))]).map(k=>`<option value="${k}">${D.lgnames[k]||k}</option>`).join('');
@@ -248,41 +241,6 @@ JS = r"""
    :'<p class="note">No player data for these fixtures yet.</p>'}
  $$('#ppMk,#ppLg,#ppQ,#ppOdds').forEach(x=>x.addEventListener('input',draw));draw()})();
 
-/* ---------- My bets (localStorage) */
-const BK='footy-bets';
-function loadBets(){try{return JSON.parse(localStorage.getItem(BK)||'[]')}catch(e){return[]}}
-function saveBets(b){try{localStorage.setItem(BK,JSON.stringify(b))}catch(e){alert('Could not save on this device (private browsing?)')}}
-function settle(b){const r=(D.results||{})[b.id];if(!r||b.res)return b;const[h,a]=r,t=h+a,k=b.mk;let w=null;
- const m=k.match(/^([OU])([\d.]+)$/),ah=k.match(/^AH([+-][\d.]+)$/);
- if(k=='H')w=h>a;else if(k=='D')w=h==a;else if(k=='A')w=a>h;else if(k=='1X')w=h>=a;else if(k=='X2')w=a>=h;else if(k=='12')w=h!=a;
- else if(k=='BTTS')w=h>0&&a>0;else if(k=='BTTS_N')w=!(h>0&&a>0);else if(k=='H_CS')w=a==0;else if(k=='A_CS')w=h==0;
- else if(k=='DNB_H'||k=='DNB_A'){if(h==a)return{...b,res:'void',score:h+'-'+a};w=k=='DNB_H'?h>a:a>h}
- else if(m)w=m[1]=='O'?t>parseFloat(m[2]):t<parseFloat(m[2]);else if(ah)w=h-a+parseFloat(ah[1])>0;
- return w==null?b:{...b,res:w?'won':'lost',score:h+'-'+a}}
-function drawBets(){const list=$('#btList');if(!list)return;let bets=loadBets().map(settle);saveBets(bets);
- const pl=b=>b.res==='won'?b.stake*(b.odds-1):b.res==='lost'?-b.stake:0;
- const st=bets.filter(b=>b.res&&b.res!=='void'),staked=st.reduce((a,b)=>a+b.stake,0),profit=st.reduce((a,b)=>a+pl(b),0);
- const exp=bets.reduce((a,b)=>a+b.stake*(b.p*b.odds-1),0);
- const card=(l,v,s)=>`<div class="mk"><span>${l}</span><b>${v}</b><span>${s||''}</span></div>`;
- $('#btSum').innerHTML=card('Bets',bets.length,`${bets.filter(b=>!b.res).length} open`)+card('Profit',(profit>=0?'+':'')+profit.toFixed(2),`settled stakes ${staked.toFixed(2)}`)+
-  card('ROI',staked?((profit>=0?'+':'')+(100*profit/staked).toFixed(1)+'%'):'-',`${st.filter(b=>b.res==='won').length}/${st.length} won`)+card('Expected profit',(exp>=0?'+':'')+exp.toFixed(2),'from model edges');
- list.innerHTML=bets.length?'<div class="tw"><table><thead><tr><th class="l">Bet</th><th>Odds</th><th>Stake</th><th>Edge</th><th>Result</th><th></th></tr></thead><tbody>'+
-  bets.slice().reverse().map((b,i)=>`<tr><td class="l">${b.label}<br><span class="sub">${b.day} · ${b.match}</span></td><td>${b.odds.toFixed(2)}</td><td>${b.stake}</td><td>${(100*(b.p*b.odds-1)).toFixed(0)}%</td>
-   <td class="${b.res==='won'?'pos':b.res==='lost'?'neg':''}">${b.res?(b.res+(b.score?' '+b.score:'')):'open'}</td><td><a class="go" href="#" data-del="${bets.length-1-i}">✕</a></td></tr>`).join('')+'</tbody></table></div>'
-  :'<p class="note">No bets yet - open a match in the Match tab, type the odds and tap "Track this bet".</p>'}
-document.addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d){e.preventDefault();const b=loadBets();b.splice(parseInt(d.dataset.del),1);saveBets(b);drawBets()}});
-(()=>{const pe=$('#mxEdge');if(!pe)return;const box=document.createElement('div');box.className='fbar';
- box.innerHTML='<label>Stake<input id="mxStake" type="number" step="1" value="10"></label><button class="b" id="mxTrack">Track this bet</button><span class="sub" id="mxTracked"></span>';
- pe.after(box);$('#mxTrack').onclick=()=>{const m=MK.find(x=>x[0]===mx.M.value),o=parseFloat(mx.P.value),s=parseFloat($('#mxStake').value)||1;
-  if(!m||!(o>1)){$('#mxTracked').textContent='Type the odds first';return}
-  const f=D.fixtures.find(x=>x.id===mx.F.value);if(!f){$('#mxTracked').textContent='Pick a fixture to track a bet';return}
-  const b=loadBets();b.push({id:f.id,day:f.day,match:nm(f.h)+' v '+nm(f.a),mk:m[0],label:m[1],p:m[2],odds:o,stake:s,at:new Date().toISOString()});
-  saveBets(b);drawBets();$('#mxTracked').textContent='✓ saved to My bets'}})();
-(()=>{if(!$('#btExport'))return;const io=$('#btIO');
- $('#btExport').onclick=()=>{io.classList.remove('hide');io.value=JSON.stringify(loadBets());io.select();try{navigator.clipboard.writeText(io.value)}catch(e){}};
- $('#btImport').onclick=()=>{if(io.classList.contains('hide')){io.classList.remove('hide');io.value='';io.placeholder='Paste exported bets here, then tap Import again';return}
-  try{const b=JSON.parse(io.value);if(Array.isArray(b)){saveBets(b);drawBets();io.classList.add('hide')}}catch(e){alert('That doesn\'t look like exported bets')}};
- $('#btClear').onclick=()=>{saveBets(loadBets().filter(b=>!b.res));drawBets()};drawBets()})();
 """
 
 

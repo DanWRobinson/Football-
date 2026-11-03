@@ -122,6 +122,10 @@ CREATE TABLE IF NOT EXISTS availability (
     PRIMARY KEY (league, team, player, source)
 );
 
+CREATE TABLE IF NOT EXISTS team_ext (
+    source TEXT, team TEXT, ext_id TEXT, PRIMARY KEY (source, team)
+);
+
 CREATE TABLE IF NOT EXISTS source_map (
     source TEXT, source_id TEXT, match_id TEXT, has_stats INTEGER,
     PRIMARY KEY (source, source_id)

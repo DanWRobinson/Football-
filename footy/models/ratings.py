@@ -93,6 +93,12 @@ def _target(df: pd.DataFrame, side: str, s: dict) -> np.ndarray:
     prox = (kind == "proxy") & ~np.isnan(xg)
     y[real] = w_real * xg[real] + (1 - w_real) * goals[real]
     y[prox] = w_proxy * xg[prox] + (1 - w_proxy) * goals[prox]
+    # blend in the closing market's implied expected goals where we have them
+    wm = s.get("market_weight", 0.0)
+    if wm and f"{side}_mkt_xg" in df:
+        mk = df[f"{side}_mkt_xg"].astype(float).values
+        has = ~np.isnan(mk)
+        y[has] = wm * mk[has] + (1 - wm) * y[has]
     return y
 
 

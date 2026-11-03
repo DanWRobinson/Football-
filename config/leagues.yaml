@@ -147,5 +147,7 @@ model:
   promoted_prior: -0.20      # starting rating for promoted teams (log scale)
   relegated_prior: 0.20      # starting rating for relegated teams
   elo_scale: 0.003           # ClubElo points -> log goal strength when Elo priors are available
+  market_weight: 0.7         # blend closing-odds-implied xG into rating targets (backtest: log loss
+                             # gap to the closing line 0.024 -> 0.015 across 5,975 games)
   news_attack_weight: 0.6    # share of a missing player's xG+xA the team actually loses (rest replaced)
   max_goals: 10

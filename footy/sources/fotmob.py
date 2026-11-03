@@ -220,7 +220,9 @@ class FotMob(Source):
                 continue
             rec = MatchRecord(league=lg.key, season=season, date=date, kickoff=ko,
                               home=home.get("name", ""), away=away.get("name", ""),
-                              source_id=str(m.get("id")))
+                              source_id=str(m.get("id")),
+                              home_ext=str(home["id"]) if home.get("id") else None,
+                              away_ext=str(away["id"]) if away.get("id") else None)
             if finished:
                 hs, as_ = home.get("score"), away.get("score")
                 if hs is None and status.get("scoreStr"):

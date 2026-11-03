@@ -82,7 +82,24 @@ def match_frame(con, leagues: list[str] | None = None, seasons: list[int] | None
     m["xg_kind"] = np.where(m.h_xg_real.notna(), "real", np.where(m.h_xg_proxy.notna(), "proxy", "none"))
     m.loc[m.status != "played", "xg_kind"] = "none"
     m.attrs["proxy_coef"] = (a, b)
+    from .market import add_market_xg
+    m = add_market_xg(m, db.odds_wide(con, list(m.match_id[m.status == "played"])))
+    m.attrs["proxy_coef"] = (a, b)
     return m
+
+
+# football-data.co.uk's abbreviations -> how clubs are usually written (display only)
+DISPLAY = {
+    "sp lisbon": "Sporting CP", "ath madrid": "Atlético Madrid", "ath bilbao": "Athletic Club",
+    "nottm forest": "Nottingham Forest", "sheffield weds": "Sheffield Wednesday", "sheffield united": "Sheffield United",
+    "m gladbach": "Borussia M'gladbach", "ein frankfurt": "Eintracht Frankfurt", "sociedad": "Real Sociedad",
+    "vallecano": "Rayo Vallecano", "espanol": "Espanyol", "bristol rvs": "Bristol Rovers", "sp braga": "Braga",
+    "dag and red": "Dagenham & Redbridge", "man united": "Man United", "man city": "Man City", "qpr": "QPR",
+    "mk dons": "MK Dons", "fc koln": "FC Köln", "st etienne": "Saint-Étienne", "paris sg": "PSG", "guimaraes": "Vitória SC",
+    "betis": "Real Betis", "celta": "Celta Vigo", "la coruna": "Deportivo La Coruña", "st gilloise": "Union SG",
+    "st truiden": "Sint-Truiden", "inter": "Inter", "milan": "AC Milan", "forest green": "Forest Green Rovers",
+    "wimbledon": "AFC Wimbledon", "west brom": "West Brom", "nijmegen": "NEC Nijmegen", "az alkmaar": "AZ Alkmaar",
+}
 
 
 def team_names(con) -> dict[str, str]:
@@ -92,5 +109,6 @@ def team_names(con) -> dict[str, str]:
     if df.empty:
         return {}
     df = df.dropna()
-    best = df.groupby("k").n.agg(lambda x: x.value_counts().index[0])
-    return best.to_dict()
+    best = df.groupby("k").n.agg(lambda x: x.value_counts().index[0]).to_dict()
+    best.update({k: v for k, v in DISPLAY.items() if k in best})
+    return best
