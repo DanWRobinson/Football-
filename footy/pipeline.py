@@ -471,6 +471,25 @@ def update_fpl(echo=print) -> None:
             con.execute(f"INSERT OR REPLACE INTO fpl_history({','.join(h)}) VALUES({','.join('?' * len(h))})",
                         list(h.values()))
     echo(f"  FPL: match history for {len(ids)} players ({len(hist)} rows)")
+    import json as _json
+    with db.session() as con:
+        con.execute("INSERT OR REPLACE INTO fpl_json VALUES(?,?,?)",
+                    ("meta", _json.dumps({"total_players": boot.get("total_players")}), db.now_iso()))
+    # your team: entry, history (chips, transfers) and mini-league rivals
+    try:
+        from .my import load as my_load
+        entry_id = (my_load().get("fpl") or {}).get("entry_id")
+        if entry_id:
+            done = [e for e in events if e[3] or e[4]]   # finished or current
+            gw = max((e[0] for e in done), default=None)
+            bundle = fpl_src.fetch_entry_bundle(int(entry_id), gw)
+            import json
+            with db.session() as con:
+                con.execute("INSERT OR REPLACE INTO fpl_json VALUES(?,?,?)", ("bundle", json.dumps(bundle), db.now_iso()))
+            echo(f"  FPL: your team + {len(bundle['leagues'])} mini-league(s), "
+                 f"{sum(len(l['picks']) for l in bundle['leagues'])} rival squads")
+    except Exception as e:
+        echo(f"  FPL: entry/mini-leagues FAILED {e}")
 
 
 def coverage(con) -> pd.DataFrame:

@@ -44,7 +44,9 @@ def parse(boot: dict, fixtures: list):
             xgi=_f(e.get("expected_goal_involvements")), xgc=_f(e.get("expected_goals_conceded")),
             defensive_contribution=_f(e.get("defensive_contribution")),
             penalties_order=_f(e.get("penalties_order")), form=_f(e.get("form")),
-            news=e.get("news"),
+            news=e.get("news"), transfers_in_event=_f(e.get("transfers_in_event")),
+            transfers_out_event=_f(e.get("transfers_out_event")), cost_change_event=_f(e.get("cost_change_event")),
+            cost_change_start=_f(e.get("cost_change_start")),
         ))
     fx = []
     for f in fixtures:
@@ -78,3 +80,29 @@ def fetch_history(player_ids: list[int]) -> list[dict]:
                 defensive_contribution=_f(h.get("defensive_contribution")), saves=_f(h.get("saves")),
             ))
     return rows
+
+
+def fetch_entry_bundle(entry: int, gw: int | None, max_leagues: int = 3, rivals_per_league: int = 10) -> dict:
+    """Everything the FPL extras need for one manager: entry, history, private mini-league standings
+    and the latest public picks of the rivals around you. ~15-35 requests, cached for 3 hours."""
+    out = {"entry": get(f"{BASE}/entry/{entry}/", as_json=True, ttl=3 * 3600),
+           "history": get(f"{BASE}/entry/{entry}/history/", as_json=True, ttl=3 * 3600), "leagues": []}
+    classic = [l for l in (out["entry"].get("leagues") or {}).get("classic", []) if l.get("league_type") == "x"]
+    for lg in classic[:max_leagues]:
+        try:
+            st = get(f"{BASE}/leagues-classic/{lg['id']}/standings/", as_json=True, ttl=3 * 3600)
+        except Exception:
+            continue
+        results = (st.get("standings") or {}).get("results") or []
+        me = next((i for i, r in enumerate(results) if r.get("entry") == entry), None)
+        lo = max(0, (me or 0) - rivals_per_league // 2)
+        near = [r for r in results[lo:lo + rivals_per_league + 1] if r.get("entry") != entry]
+        picks = {}
+        if gw:
+            for r in near:
+                try:
+                    picks[str(r["entry"])] = get(f"{BASE}/entry/{r['entry']}/event/{gw}/picks/", as_json=True, ttl=3 * 3600)
+                except Exception:
+                    continue
+        out["leagues"].append({"id": lg["id"], "name": lg.get("name"), "results": results[:50], "picks": picks})
+    return out

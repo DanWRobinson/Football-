@@ -6,6 +6,7 @@ import itertools
 import unicodedata
 from functools import lru_cache
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -109,6 +110,42 @@ def best_xi(sq: pd.DataFrame, col: str = "xPts_next") -> set[int]:
     return best_ids
 
 
+def squad_points(sq: pd.DataFrame, cols: list[str]) -> float:
+    """Expected points your best XI (with captain) would score across these gameweeks.
+    Bench players only count when they'd make the XI - which is what a transfer really changes."""
+    total = 0.0
+    for c in cols:
+        xi = sq[sq.id.isin(best_xi(sq, c))]
+        if len(xi):
+            total += float(xi[c].sum() + xi[c].max())
+    return total
+
+
+def best_moves(sq: pd.DataFrame, xp: pd.DataFrame, bank: float, cols: list[str], exclude: set | None = None,
+               per_out: int = 4) -> pd.DataFrame:
+    """Single transfers ranked by the gain in best-XI points over `cols`."""
+    base = squad_points(sq, cols)
+    pool = xp[~xp.id.isin(sq.id) & (xp.status == "a") & (xp.start_rate >= 0.5)]
+    if exclude:
+        pool = pool[~pool.id.isin(exclude)]
+    counts = sq.team.value_counts().to_dict()
+    long_col = "_h"
+    pool = pool.assign(_h=pool[cols].sum(axis=1))
+    rows = []
+    for _, out in sq.iterrows():
+        c = pool[(pool.position == out.position) & (pool.price <= out.price + bank + 1e-9)]
+        c = c[np.array([counts.get(t, 0) - (1 if t == out.team else 0) < 3 for t in c.team], dtype=bool)]
+        for _, inn in c.sort_values(long_col, ascending=False).head(per_out).iterrows():
+            after = pd.concat([sq[sq.id != out.id], inn.to_frame().T.drop(columns="_h")])
+            after[cols] = after[cols].astype(float)
+            gain = squad_points(after, cols) - base
+            rows.append(dict(out=out.player, out_id=out.id, out_team=out.team, out_price=out.price,
+                             out_pts=float(out[cols].sum()), inn=inn.player, in_id=inn.id, in_team=inn.team,
+                             in_price=inn.price, in_pts=float(inn[long_col]), gain=gain,
+                             flag=out.status not in ("a", None) or (pd.notna(out.chance_next) and out.chance_next < 75)))
+    return pd.DataFrame(rows).sort_values("gain", ascending=False) if rows else pd.DataFrame()
+
+
 def analyse(con, xp: pd.DataFrame, horizon: int = 5) -> dict | None:
     """Squad table, recommended XI/captain and single-transfer suggestions."""
     sq_ids, bank = squad(con)
@@ -131,22 +168,9 @@ def analyse(con, xp: pd.DataFrame, horizon: int = 5) -> dict | None:
     now_pts = total(sq[sq.start_now], cur_cap)
     best_pts = total(sq[sq.start_best], cap)
 
-    # single transfers: same position, affordable, max 3 per club, ranked by gain over the horizon
-    team_count = sq.team.value_counts().to_dict()
-    pool = xp[~xp.id.isin(sq.id) & xp.status.isin(["a", None]) & (xp.start_rate >= 0.5)]
-    moves = []
-    for _, out in sq.iterrows():
-        budget = out.price + bank
-        c = pool[(pool.position == out.position) & (pool.price <= budget + 1e-9)]
-        c = c[[team_count.get(t, 0) - (1 if t == out.team else 0) < 3 for t in c.team]]
-        if c.empty:
-            continue
-        for _, top in c.sort_values(long_col, ascending=False).head(4).iterrows():
-            gain = top[long_col] - (out[long_col] if pd.notna(out[long_col]) else 0)
-            moves.append(dict(out=out.player, out_team=out.team, out_pts=out[long_col], inn=top.player,
-                              in_team=top.team, in_price=top.price, in_pts=top[long_col], gain=gain,
-                              flag=out.status not in ("a", None) or (pd.notna(out.chance_next) and out.chance_next < 75)))
-    moves = pd.DataFrame(moves).sort_values("gain", ascending=False) if moves else pd.DataFrame()
+    # single transfers ranked by how much they improve your best XI over the horizon
+    gw_cols = [c for c in xp.columns if c.startswith("GW")][:horizon]
+    moves = best_moves(sq, xp, bank, gw_cols)
     if not moves.empty:  # one suggestion per incoming player, so the list isn't five versions of the same move
         moves = moves.drop_duplicates("inn")
     return dict(squad=sq, captain=cap, vice=vc, current_captain=cur_cap, now_pts=now_pts, best_pts=best_pts,

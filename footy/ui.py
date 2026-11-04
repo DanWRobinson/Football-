@@ -365,7 +365,11 @@ function renderValue(){const box=$('#vbox');if(!box)return;const adj=($('#vMode'
  box.innerHTML=rows.length?rows.map(v=>`<div class="fx" data-fx="${v.id}" data-mk="${v.mkkey}" data-pr="${v.price}"><div class="meta"><span>${esc(D.lgnames[v.lg]||v.lg)} · ${esc(v.day)}</span><span class="${E(v)>0?'pos':'neg'}">${(E(v)>0?'+':'')+(100*E(v)).toFixed(1)}% edge</span></div>
   <div class="tm"><span class="nm">${esc(v.sel)} <span class="sub">· ${esc(v.match)}</span></span><span class="p">${v.price.toFixed(2)}<br><span class="sub">${esc(v.bk||'')}</span></span></div>
   <div class="foot"><span>Model <b>${pc(P(v))}</b></span><span>Market <b>${v.mp!=null?pc(v.mp):'-'}</b></span><span>Fair <b>${fo(P(v))}</b></span><span>Stake <b>${(100*S(v)).toFixed(1)}%</b></span>${v.news?`<span>🩹 ${esc(v.news)}</span>`:''}</div></div>`).join('')
-  :`<p class="note">${D.value.length?'No selections match these filters - lower the minimum edge.':'No bookmaker prices for the coming fixtures yet: football-data.co.uk publishes them a day or two before each round. Until then use the fair odds below and type the Bet365 price into a match.'}</p>`}
+  :(()=>{const other=bk==='b365'?D.value.filter(v=>v.book==='best'&&E(v)>=me&&v.price<=mx_&&(!mk||v.market===mk)&&(!lg||v.lg===lg)).length:0;
+    return `<p class="note">${!D.value.length?'No bookmaker prices for the coming fixtures yet. Use the fair odds below and type a price into a match.':
+     other?`Nothing clears ${Math.round(me*100)}% at Bet365, but <b>${other}</b> selection${other==1?' does':'s do'} at other UK bookmakers.`:'No selections match these filters - lower the minimum edge.'}</p>`+
+     (other?'<button class="b ghost" id="vSwitch">Show best UK prices</button>':'')})();
+ const sw=$('#vSwitch');if(sw)sw.onclick=()=>{$('#vBook').value='best';renderValue()}}
 $$('#vMin,#vBook,#vMode,#vMk,#vLg,#vQ,#vMax').forEach(c=>c&&c.addEventListener('input',renderValue));renderValue();
 
 /* ---------- Bet builder (slip) */

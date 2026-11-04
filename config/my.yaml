@@ -17,6 +17,8 @@ fpl:
   # come from FPL automatically every week. Name as shown in FPL + next opponent, so players
   # with the same surname can't be mixed up.
   gameweek: 10
+  # chips already played (used until FPL sync provides your chip history): name -> gameweek
+  chips_used: {wildcard: 8}
   squad:
     - {name: Suzuki, next: MUN (A)}
     - {name: Van Hecke, next: LEE (A)}

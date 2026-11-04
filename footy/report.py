@@ -357,6 +357,118 @@ def fpl_summary(con, m: dict) -> dict:
             "move_gain": f"+{mv.gain.iloc[0]:.1f} pts over {m['horizon']} GWs" if not mv.empty else ""}
 
 
+def fpl_extras_html(con, rt, nm, mine) -> str:
+    """Chip planner, transfer planner, mini-league rivals and price watch for the FPL tab."""
+    from . import fpl_extra as fx
+    from . import my
+    from .models import fpl as fplm
+    if not mine:
+        return ""
+    xp, _ = fplm.expected_points(con, rt, 10)
+    if xp.empty:
+        return ""
+    xp["team"] = xp.team.map(nm)
+    events = db.read_sql(con, "SELECT * FROM fpl_events")
+    fixtures = db.read_sql(con, "SELECT * FROM fpl_fixtures")
+    next_gw = fplm.next_event(events)
+    sq_ids = list(mine["squad"].id)
+    b = fx.bundle(con)
+    entry_id = int((my.load().get("fpl") or {}).get("entry_id") or 0)
+    budget = float(mine["squad"].price.sum()) + mine["bank"]
+    gws = [int(c[2:]) for c in xp.columns if c.startswith("GW")]
+    parts = []
+
+    # chips
+    used = fx.chips_used(b)
+    avail, half_end = fx.chips_available(used, next_gw)
+    plan = fx.chip_planner(xp, sq_ids, gws, fixtures, budget, avail, half_end)
+    used_txt = ", ".join(f"{fx.CHIP_NAMES.get(n, n)} (GW{e})" for n, e in used) or "none"
+    parts.append(f'<h2>Chips</h2><p class="note">Available until GW{half_end}: '
+                 f'<b>{html.escape(", ".join(fx.CHIP_NAMES[c] for c in avail) or "none")}</b>. Played: {html.escape(used_txt)}. '
+                 "Values are expected extra points that gameweek; ★ = best week in view. Double gameweeks (two games "
+                 "for a team) and blanks are where chips usually earn most.</p>")
+    if not plan.empty:
+        cols = [("gw", "GW", "int"), ("dgw", "Doubles", "int"), ("blank", "Blanks", "int")]
+        for key, lab in (("bench_boost", "Bench Boost"), ("triple_captain", "Triple Capt."), ("free_hit", "Free Hit")):
+            if key in plan:
+                top = plan[key].idxmax()
+                plan[key + "_s"] = [f"{v:.1f}" + (" ★" if i == top else "") for i, v in zip(plan.index, plan[key])]
+                cols.append((key + "_s", lab, "text"))
+        if "tc_player" in plan:
+            cols.append(("tc_player", "TC pick", "text"))
+        parts.append(table(plan, cols))
+        tips = []
+        for key, lab in (("bench_boost", "Bench Boost"), ("triple_captain", "Triple Captain"), ("free_hit", "Free Hit")):
+            if key in plan and plan[key].notna().any():
+                r = plan.loc[plan[key].idxmax()]
+                extra = f" on {r.tc_player}" if key == "triple_captain" else ""
+                tips.append(f"{lab}: GW{int(r.gw)}{extra} (+{r[key]:.1f})")
+        if tips:
+            parts.append(f'<p class="note">Best weeks so far - {html.escape(" · ".join(tips))}. With only ~10 '
+                         "gameweeks of fixtures modelled, a later double gameweek can beat these; FPL usually confirms "
+                         "doubles a few weeks ahead.</p>")
+
+    # transfers
+    ft = fx.free_transfers(b, next_gw)
+    hz = "xPts_5gw" if "xPts_5gw" in xp else [c for c in xp.columns if c.startswith("xPts_") and c.endswith("gw")][0]
+    xp5, _ = fplm.expected_points(con, rt, 5)
+    xp5["team"] = xp5.team.map(nm)
+    tp = fx.transfer_plan(xp5, sq_ids, mine["bank"], "xPts_5gw", ft)
+    opts = pd.DataFrame(tp["options"])
+    opts["verdict"] = ["✓ best" if p == tp["best"] else "" for p in opts.plan]
+    parts.append(f'<h2>Transfer plan (next 5 GWs)</h2><p class="note">Free transfers: '
+                 f'<b>{tp["ft"] if ft is not None else "1 (assumed)"}</b>{" (estimated from your FPL history)" if ft else ""}. '
+                 "Each extra transfer costs -4. A plan has to beat rolling by more than ~1 point to be worth it, "
+                 "because projections are noisy.</p>")
+    parts.append(table(opts, [("plan", "Plan", "text"), ("detail", "Moves", "text"), ("gain", "Gain", "signed"),
+                              ("hit", "Hit", "int"), ("net", "Net", "signed"), ("verdict", "", "text")]))
+
+    # mini-leagues
+    riv = fx.rivals(b, xp, sq_ids, f"GW{next_gw}", entry_id) if entry_id else []
+    if riv:
+        parts.append("<h2>Mini-leagues</h2>")
+        for lg in riv:
+            t = lg["table"].head(15).copy()
+            t["you"] = ["← you" if e == entry_id else "" for e in t.entry]
+            parts.append(f"<details><summary>{html.escape(lg['name'] or 'League')}</summary>" + table(
+                t, [("rank", "#", "int"), ("entry_name", "Team", "text"), ("player_name", "Manager", "text"),
+                    ("event_total", "GW", "int"), ("total", "Total", "int"), ("gap", "vs you", "signed"),
+                    ("you", "", "text")]))
+            if lg["captains"]:
+                parts.append('<p class="note">Rivals\' captains: ' + html.escape(", ".join(
+                    f"{c['player']} {c['share']:.0%}" for c in lg["captains"])) + f" (of {lg['rivals']} nearest rivals)</p>")
+            if lg["threats"]:
+                parts.append("<h3>Threats - most rivals have them, you don't</h3>" + table(
+                    pd.DataFrame(lg["threats"][:8]), [("player", "Player", "text"), ("team", "Team", "text"),
+                                                      ("owned", "Rivals own", "pct"), ("next", f"GW{next_gw} xPts", "f1")]))
+            if lg["diffs"]:
+                parts.append("<h3>Your differentials</h3>" + table(
+                    pd.DataFrame(lg["diffs"][:8]), [("player", "Player", "text"), ("team", "Team", "text"),
+                                                    ("owned", "Rivals own", "pct"), ("next", f"GW{next_gw} xPts", "f1")]))
+            parts.append("</details>")
+    elif entry_id:
+        parts.append('<h2>Mini-leagues</h2><p class="note">Your private leagues appear after the next update '
+                     "(rival picks become public at each deadline).</p>")
+
+    # price watch
+    pw = fx.price_watch(con, sq_ids)
+    if not pw.empty:
+        pw["team"] = pw.team.map(nm)
+        mine_pw = pw[pw.mine].sort_values("pressure")
+        movers = pw[pw.outlook != ""].sort_values("pressure", ascending=False)
+        parts.append('<h2>Price watch</h2><p class="note">Net transfers this gameweek as a share of owners. FPL\'s '
+                     "price algorithm is secret, so these are rough signals - heavy selling means a fall is coming.</p>")
+        parts.append("<h3>Your players</h3>" + table(mine_pw, [
+            ("player", "Player", "text"), ("price", "£m", "f1"), ("net", "Net transfers", "int"),
+            ("pressure", "of owners", "pct1"), ("outlook", "Outlook", "text")]))
+        if not movers.empty:
+            parts.append("<details><summary>Biggest movers</summary>" + table(
+                pd.concat([movers.head(10), movers.tail(10)]).drop_duplicates("id"),
+                [("player", "Player", "text"), ("team", "Team", "text"), ("price", "£m", "f1"),
+                 ("net", "Net", "int"), ("pressure", "of owners", "pct1"), ("outlook", "Outlook", "text")]) + "</details>")
+    return "".join(parts)
+
+
 def _json(obj) -> str:
     import json
     def conv(o):
@@ -587,6 +699,10 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                      + "".join(f'<option value="{v}">≤ £{v}m</option>' for v in (4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0,
                                                                               9.0, 10.0, 11.0, 12.0)) + "</select>")
             parts = [my_squad_html(mine)] if mine else []
+            try:
+                parts.append(fpl_extras_html(con, ratings["E0"], nm, mine))
+            except Exception as e:  # noqa: BLE001 - never lose the page over an FPL extra
+                parts.append(f'<p class="note">FPL extras unavailable this run ({html.escape(str(e))[:120]}).</p>')
             parts += ['<h2>All players</h2><p class="note">Expected FPL points over the next 5 gameweeks. Built from FPL xG/xA, fixture '
                      "difficulty from the team model, clean-sheet odds, recent starts, defensive contributions, "
                      "saves and bonus. Filter by position/price; tap a header to sort (e.g. per £m).</p>",

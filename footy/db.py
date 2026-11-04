@@ -122,6 +122,10 @@ CREATE TABLE IF NOT EXISTS availability (
     PRIMARY KEY (league, team, player, source)
 );
 
+CREATE TABLE IF NOT EXISTS fpl_json (
+    key TEXT PRIMARY KEY, json TEXT, at TEXT       -- raw FPL entry / history / league / rival-picks payloads
+);
+
 CREATE TABLE IF NOT EXISTS odds_api_log (
     sport TEXT, at TEXT, credits INTEGER, remaining INTEGER
 );
@@ -146,7 +150,9 @@ def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
-MIGRATIONS = [("matches", "referee", "TEXT")]
+MIGRATIONS = [("matches", "referee", "TEXT"),
+              ("fpl_players", "transfers_in_event", "REAL"), ("fpl_players", "transfers_out_event", "REAL"),
+              ("fpl_players", "cost_change_event", "REAL"), ("fpl_players", "cost_change_start", "REAL")]
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
