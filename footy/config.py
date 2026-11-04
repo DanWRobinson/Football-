@@ -42,6 +42,7 @@ class League:
     api_football: int | None = None
     fpl: bool = False
     kind: str = "league"          # 'league' (domestic) | 'europe' (UEFA club competitions)
+    odds_api: str | None = None   # The Odds API sport key
     xg_sources: list[str] = field(default_factory=list)
 
     @property

@@ -1,0 +1,563 @@
+[
+ {
+  "id": "586bec023ee8ac2f0645d963bd2c9d25",
+  "sport_key": "soccer_epl",
+  "sport_title": "EPL",
+  "commence_time": "2026-11-06T20:00:00Z",
+  "home_team": "Everton",
+  "away_team": "Coventry City",
+  "bookmakers": [
+   {
+    "key": "paddypower",
+    "title": "Paddy Power",
+    "last_update": "2026-11-04T09:40:04Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:04Z",
+      "outcomes": [
+       {
+        "name": "Coventry City",
+        "price": 4.75
+       },
+       {
+        "name": "Everton",
+        "price": 1.67
+       },
+       {
+        "name": "Draw",
+        "price": 3.8
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "skybet",
+    "title": "Sky Bet",
+    "last_update": "2026-11-04T09:40:25Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:25Z",
+      "outcomes": [
+       {
+        "name": "Coventry City",
+        "price": 4.6
+       },
+       {
+        "name": "Everton",
+        "price": 1.67
+       },
+       {
+        "name": "Draw",
+        "price": 3.8
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "betfair_ex_uk",
+    "title": "Betfair",
+    "last_update": "2026-11-04T09:40:26Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:26Z",
+      "outcomes": [
+       {
+        "name": "Coventry City",
+        "price": 5.1
+       },
+       {
+        "name": "Everton",
+        "price": 1.76
+       },
+       {
+        "name": "Draw",
+        "price": 4.1
+       }
+      ]
+     },
+     {
+      "key": "h2h_lay",
+      "last_update": "2026-11-04T09:40:26Z",
+      "outcomes": [
+       {
+        "name": "Coventry City",
+        "price": 5.2
+       },
+       {
+        "name": "Everton",
+        "price": 1.78
+       },
+       {
+        "name": "Draw",
+        "price": 4.2
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "williamhill",
+    "title": "William Hill",
+    "last_update": "2026-11-04T09:40:03Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:03Z",
+      "outcomes": [
+       {
+        "name": "Coventry City",
+        "price": 4.6
+       },
+       {
+        "name": "Everton",
+        "price": 1.7
+       },
+       {
+        "name": "Draw",
+        "price": 3.8
+       }
+      ]
+     },
+     {
+      "key": "totals",
+      "last_update": "2026-11-04T09:40:03Z",
+      "outcomes": [
+       {
+        "name": "Over",
+        "price": 1.7,
+        "point": 2.5
+       },
+       {
+        "name": "Under",
+        "price": 2.1,
+        "point": 2.5
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "smarkets",
+    "title": "Smarkets",
+    "last_update": "2026-11-04T09:40:27Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:27Z",
+      "outcomes": [
+       {
+        "name": "Coventry City",
+        "price": 5.0
+       },
+       {
+        "name": "Everton",
+        "price": 1.76
+       },
+       {
+        "name": "Draw",
+        "price": 4.1
+       }
+      ]
+     },
+     {
+      "key": "h2h_lay",
+      "last_update": "2026-11-04T09:40:27Z",
+      "outcomes": [
+       {
+        "name": "Coventry City",
+        "price": 5.1
+       },
+       {
+        "name": "Everton",
+        "price": 1.78
+       },
+       {
+        "name": "Draw",
+        "price": 4.2
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "5c87852253fd11eea5d34ad723356607",
+  "sport_key": "soccer_epl",
+  "sport_title": "EPL",
+  "commence_time": "2026-11-07T12:30:00Z",
+  "home_team": "Leeds United",
+  "away_team": "Tottenham Hotspur",
+  "bookmakers": [
+   {
+    "key": "paddypower",
+    "title": "Paddy Power",
+    "last_update": "2026-11-04T09:40:04Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:03Z",
+      "outcomes": [
+       {
+        "name": "Leeds United",
+        "price": 2.6
+       },
+       {
+        "name": "Tottenham Hotspur",
+        "price": 2.7
+       },
+       {
+        "name": "Draw",
+        "price": 3.25
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "skybet",
+    "title": "Sky Bet",
+    "last_update": "2026-11-04T09:40:25Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:25Z",
+      "outcomes": [
+       {
+        "name": "Leeds United",
+        "price": 2.6
+       },
+       {
+        "name": "Tottenham Hotspur",
+        "price": 2.7
+       },
+       {
+        "name": "Draw",
+        "price": 3.2
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "betfair_ex_uk",
+    "title": "Betfair",
+    "last_update": "2026-11-04T09:40:26Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:26Z",
+      "outcomes": [
+       {
+        "name": "Leeds United",
+        "price": 2.72
+       },
+       {
+        "name": "Tottenham Hotspur",
+        "price": 2.86
+       },
+       {
+        "name": "Draw",
+        "price": 3.45
+       }
+      ]
+     },
+     {
+      "key": "h2h_lay",
+      "last_update": "2026-11-04T09:40:26Z",
+      "outcomes": [
+       {
+        "name": "Leeds United",
+        "price": 2.74
+       },
+       {
+        "name": "Tottenham Hotspur",
+        "price": 2.88
+       },
+       {
+        "name": "Draw",
+        "price": 3.5
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "williamhill",
+    "title": "William Hill",
+    "last_update": "2026-11-04T09:40:03Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:03Z",
+      "outcomes": [
+       {
+        "name": "Leeds United",
+        "price": 2.5
+       },
+       {
+        "name": "Tottenham Hotspur",
+        "price": 2.62
+       },
+       {
+        "name": "Draw",
+        "price": 3.3
+       }
+      ]
+     },
+     {
+      "key": "totals",
+      "last_update": "2026-11-04T09:40:03Z",
+      "outcomes": [
+       {
+        "name": "Over",
+        "price": 1.91,
+        "point": 2.5
+       },
+       {
+        "name": "Under",
+        "price": 1.85,
+        "point": 2.5
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "smarkets",
+    "title": "Smarkets",
+    "last_update": "2026-11-04T09:40:27Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:27Z",
+      "outcomes": [
+       {
+        "name": "Leeds United",
+        "price": 2.7
+       },
+       {
+        "name": "Tottenham Hotspur",
+        "price": 2.84
+       },
+       {
+        "name": "Draw",
+        "price": 3.45
+       }
+      ]
+     },
+     {
+      "key": "h2h_lay",
+      "last_update": "2026-11-04T09:40:27Z",
+      "outcomes": [
+       {
+        "name": "Leeds United",
+        "price": 2.74
+       },
+       {
+        "name": "Tottenham Hotspur",
+        "price": 2.88
+       },
+       {
+        "name": "Draw",
+        "price": 3.5
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "842fcc5b9feb8c63054a661ad1fc8926",
+  "sport_key": "soccer_epl",
+  "sport_title": "EPL",
+  "commence_time": "2026-11-07T15:00:00Z",
+  "home_team": "Arsenal",
+  "away_team": "Hull City",
+  "bookmakers": [
+   {
+    "key": "paddypower",
+    "title": "Paddy Power",
+    "last_update": "2026-11-04T09:40:04Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:03Z",
+      "outcomes": [
+       {
+        "name": "Arsenal",
+        "price": 1.14
+       },
+       {
+        "name": "Hull City",
+        "price": 16.0
+       },
+       {
+        "name": "Draw",
+        "price": 7.5
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "betfair_ex_uk",
+    "title": "Betfair",
+    "last_update": "2026-11-04T09:40:26Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:26Z",
+      "outcomes": [
+       {
+        "name": "Arsenal",
+        "price": 1.19
+       },
+       {
+        "name": "Hull City",
+        "price": 20.0
+       },
+       {
+        "name": "Draw",
+        "price": 8.4
+       }
+      ]
+     },
+     {
+      "key": "h2h_lay",
+      "last_update": "2026-11-04T09:40:26Z",
+      "outcomes": [
+       {
+        "name": "Arsenal",
+        "price": 1.2
+       },
+       {
+        "name": "Hull City",
+        "price": 22.0
+       },
+       {
+        "name": "Draw",
+        "price": 8.6
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "williamhill",
+    "title": "William Hill",
+    "last_update": "2026-11-04T09:40:03Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:03Z",
+      "outcomes": [
+       {
+        "name": "Arsenal",
+        "price": 1.15
+       },
+       {
+        "name": "Hull City",
+        "price": 17.0
+       },
+       {
+        "name": "Draw",
+        "price": 8.0
+       }
+      ]
+     },
+     {
+      "key": "totals",
+      "last_update": "2026-11-04T09:40:03Z",
+      "outcomes": [
+       {
+        "name": "Over",
+        "price": 1.44,
+        "point": 2.5
+       },
+       {
+        "name": "Under",
+        "price": 2.62,
+        "point": 2.5
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "skybet",
+    "title": "Sky Bet",
+    "last_update": "2026-11-04T09:40:25Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:25Z",
+      "outcomes": [
+       {
+        "name": "Arsenal",
+        "price": 1.14
+       },
+       {
+        "name": "Hull City",
+        "price": 15.0
+       },
+       {
+        "name": "Draw",
+        "price": 7.0
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "key": "smarkets",
+    "title": "Smarkets",
+    "last_update": "2026-11-04T09:40:27Z",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-04T09:40:27Z",
+      "outcomes": [
+       {
+        "name": "Arsenal",
+        "price": 1.19
+       },
+       {
+        "name": "Hull City",
+        "price": 19.49
+       },
+       {
+        "name": "Draw",
+        "price": 8.4
+       }
+      ]
+     },
+     {
+      "key": "h2h_lay",
+      "last_update": "2026-11-04T09:40:27Z",
+      "outcomes": [
+       {
+        "name": "Arsenal",
+        "price": 1.2
+       },
+       {
+        "name": "Hull City",
+        "price": 21.98
+       },
+       {
+        "name": "Draw",
+        "price": 8.6
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+]

@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 170
     env:
       API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
       FOTMOB_XMAS: ${{ secrets.FOTMOB_XMAS }}
       # spread the slow per-match FotMob fetches over several days; finished matches stay cached
       FOTMOB_MAX_MATCHES: "70"          # current season, per competition per run

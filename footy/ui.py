@@ -319,7 +319,7 @@ function fillTeams(L,h,a){const ts=Object.keys((D.ratings[L]||{teams:{}}).teams)
 function fillFixtures(){const L=mx.L.value;mx.F.innerHTML='<option value="">- any two teams -</option>'+D.fixtures.filter(f=>!L||f.lg===L).map(f=>`<option value="${f.id}">${esc(f.day)} · ${esc(nm(f.h))} v ${esc(nm(f.a))}</option>`).join('')}
 function setXG(){const[lh,la]=lamb(mx.L.value,mx.H.value,mx.A.value);mx.XH.value=lh.toFixed(2);mx.XA.value=la.toFixed(2);mx.F.value='';render()}
 function openFixture(id,mk,pr){const f=fxById(id);if(!f)return;mx.L.value=f.lg;fillFixtures();fillTeams(f.lg,f.h,f.a);mx.F.value=id;
- mx.XH.value=f.xh.toFixed(2);mx.XA.value=f.xa.toFixed(2);render();if(mk){mx.M.value=mk;const b=pr?parseFloat(pr):(f.b365||{})[mk];mx.P.value=b?b.toFixed(2):'';
+ mx.XH.value=f.xh.toFixed(2);mx.XA.value=f.xa.toFixed(2);render();if(mk){mx.M.value=mk;const b=pr?parseFloat(pr):((f.b365||{})[mk]||((f.px||{})[mk]||[])[0]);mx.P.value=b?b.toFixed(2):'';
   const m=MK.find(x=>x.k===mk);if(m&&m.g!==GRP){GRP=m.g;drawList()}}price();show('mxsec')}
 function curCtx(){const f=fxById(mx.F.value);const lh=parseFloat(mx.XH.value)||0.05,la=parseFloat(mx.XA.value)||0.05;
  if(f)return[f,ctxFor(f,lh,la)];const L=mx.L.value;return[null,{lh,la,rho:(D.ratings[L]||{}).rho||-0.05,h1:(D.h1||{})[L],hn:nm(mx.H.value),an:nm(mx.A.value)}]}
@@ -335,8 +335,9 @@ function render(){const[f,c]=curCtx();CUR=f;MK=marketList(c);const g=k=>MK.find(
  const cur=mx.M.value;mx.M.innerHTML=MK.map(m=>`<option value="${m.k}">${esc(m.l)}</option>`).join('');if(cur&&MK.find(m=>m.k===cur))mx.M.value=cur;price()}
 function canBuild(m){return !(m.g==='Handicap'&&!m.f)}
 function drawList(){const slip=LS.get('slip',[]),fid=CUR?CUR.id:'';$$('#mdGroups .chip').forEach(b=>b.classList.toggle('on',b.dataset.grp===GRP));
- let h=MK.filter(m=>m.g===GRP).map(m=>`<div class="mrow"><span class="l">${esc(m.l)}</span><span class="p">${pc(m.p)}</span><span class="o">${fo(m.p)}</span>
-  ${fid?(canBuild(m)?`<button class="add ${slip.some(s=>s.id===fid&&s.mk===m.k)?'in':''}" data-add="${m.k}" data-fid="${fid}" aria-label="add to builder">+</button>`:'<span style="width:34px"></span>'):''}</div>`).join('');
+ const PX=(CUR&&CUR.px)||{};
+ let h=MK.filter(m=>m.g===GRP).map(m=>{const x=PX[m.k],e=x?m.p*x[0]-1:null;return`<div class="mrow"><span class="l">${esc(m.l)}${x?`<br><span class="sub">best ${x[0].toFixed(2)} ${esc(x[1]||'')} · <span class="${e>0?'pos':'neg'}">${(e>0?'+':'')+(100*e).toFixed(0)}%</span></span>`:''}</span><span class="p">${pc(m.p)}</span><span class="o">${fo(m.p)}</span>
+  ${fid?(canBuild(m)?`<button class="add ${slip.some(s=>s.id===fid&&s.mk===m.k)?'in':''}" data-add="${m.k}" data-fid="${fid}" aria-label="add to builder">+</button>`:'<span style="width:34px"></span>'):''}</div>`}).join('');
  if(GRP==='Scores'){const M=MK.M;let g='<div class="tw"><table class="sg"><thead><tr><th></th>'+[0,1,2,3,4,5].map(j=>`<th>${j}</th>`).join('')+'</tr></thead><tbody>';
   for(let i=0;i<=5;i++){g+=`<tr><th>${i}</th>`;for(let j=0;j<=5;j++)g+=`<td>${(100*M[i][j]).toFixed(1)}</td>`;g+='</tr>'}h=g+'</tbody></table></div><p class="note">Rows = home goals, columns = away goals (%).</p>'+h}
  $('#mdList').innerHTML='<div class="mrow sub"><span class="l">Market</span><span class="p">Prob.</span><span class="o">Fair</span>'+(fid?'<span style="width:34px"></span>':'')+'</div>'+h+
@@ -362,7 +363,7 @@ function renderValue(){const box=$('#vbox');if(!box)return;const adj=($('#vMode'
  const rows=D.value.filter(v=>v.book===bk&&E(v)>=me&&v.price<=mx_&&(!mk||v.market===mk)&&(!lg||v.lg===lg)&&(!q||(v.match+' '+v.sel).toLowerCase().includes(q))).sort((a,b)=>E(b)-E(a));
  $('#vCount').textContent=rows.length+' selection'+(rows.length==1?'':'s');
  box.innerHTML=rows.length?rows.map(v=>`<div class="fx" data-fx="${v.id}" data-mk="${v.mkkey}" data-pr="${v.price}"><div class="meta"><span>${esc(D.lgnames[v.lg]||v.lg)} · ${esc(v.day)}</span><span class="${E(v)>0?'pos':'neg'}">${(E(v)>0?'+':'')+(100*E(v)).toFixed(1)}% edge</span></div>
-  <div class="tm"><span class="nm">${esc(v.sel)} <span class="sub">· ${esc(v.match)}</span></span><span class="p">${v.price.toFixed(2)}</span></div>
+  <div class="tm"><span class="nm">${esc(v.sel)} <span class="sub">· ${esc(v.match)}</span></span><span class="p">${v.price.toFixed(2)}<br><span class="sub">${esc(v.bk||'')}</span></span></div>
   <div class="foot"><span>Model <b>${pc(P(v))}</b></span><span>Market <b>${v.mp!=null?pc(v.mp):'-'}</b></span><span>Fair <b>${fo(P(v))}</b></span><span>Stake <b>${(100*S(v)).toFixed(1)}%</b></span>${v.news?`<span>🩹 ${esc(v.news)}</span>`:''}</div></div>`).join('')
   :`<p class="note">${D.value.length?'No selections match these filters - lower the minimum edge.':'No bookmaker prices for the coming fixtures yet: football-data.co.uk publishes them a day or two before each round. Until then use the fair odds below and type the Bet365 price into a match.'}</p>`}
 $$('#vMin,#vBook,#vMode,#vMk,#vLg,#vQ,#vMax').forEach(c=>c&&c.addEventListener('input',renderValue));renderValue();
@@ -451,9 +452,10 @@ function drawToday(){const box=$('#tdOut');if(!box)return;let h='';const fav=D.f
    <div class="mk"><span>Your XI</span><b>${F.now_pts.toFixed(1)}</b><span>best ${F.best_pts.toFixed(1)}</span></div>
    ${F.move?`<div class="mk"><span>Best transfer</span><b style="font-size:15px">${esc(F.move)}</b><span>${esc(F.move_gain)}</span></div>`:''}</div>
    ${F.changes&&F.changes.length?`<p class="note">Line-up: ${esc(F.changes)}</p>`:''}${F.flagged&&F.flagged.length?`<p class="note">⚠ ${esc(F.flagged.join(' · '))}</p>`:''}</div>`}
- const adj=v=>v.pb!=null?v.pb:v.p;const short=(D.value||[]).filter(v=>v.book==='b365').map(v=>({...v,e:adj(v)*v.price-1})).filter(v=>v.e>=0.03).sort((a,b)=>b.e-a.e).slice(0,3);
- h+=`<div class="card"><h2>Shortlist <span class="sub">market-adjusted, Bet365</span></h2>`+(short.length?short.map(v=>`<div class="mrow" data-fx="${v.id}" data-mk="${v.mkkey}" data-pr="${v.price}" style="cursor:pointer"><span class="l">${esc(v.sel)}<br><span class="sub">${esc(v.match)} · ${esc(v.day)}</span></span><span class="p">${v.price.toFixed(2)}</span><span class="o pos">+${(100*v.e).toFixed(0)}%</span></div>`).join('')
-  :`<p class="note">${(D.value||[]).length?'Nothing clears a 3% market-adjusted edge right now.':'No Bet365 prices for the next round yet - they usually appear a day or two before kick-off.'}</p>`)+`<p style="margin:6px 0 0"><a class="go" href="#" data-go="value">All value ›</a></p></div>`;
+ const adj=v=>v.pb!=null?v.pb:v.p;const short=(D.value||[]).map(v=>({...v,e:adj(v)*v.price-1})).filter(v=>v.e>=0.03).sort((a,b)=>b.e-a.e)
+  .filter((v,i,a)=>a.findIndex(x=>x.id===v.id&&x.mkkey===v.mkkey)===i).slice(0,4);
+ h+=`<div class="card"><h2>Shortlist <span class="sub">market-adjusted</span></h2>`+(short.length?short.map(v=>`<div class="mrow" data-fx="${v.id}" data-mk="${v.mkkey}" data-pr="${v.price}" style="cursor:pointer"><span class="l">${esc(v.sel)}<br><span class="sub">${esc(v.match)} · ${esc(v.day)} · ${esc(v.book==='b365'?'Bet365':(v.bk||''))}</span></span><span class="p">${v.price.toFixed(2)}</span><span class="o pos">+${(100*v.e).toFixed(0)}%</span></div>`).join('')
+  :`<p class="note">${(D.value||[]).length?'Nothing clears a 3% market-adjusted edge right now.':'No bookmaker prices for the next games yet.'}</p>`)+`<p style="margin:6px 0 0"><a class="go" href="#" data-go="value">All value ›</a></p></div>`;
  const bets=loadBets().map(settle),open=bets.filter(b=>!b.res);const st=bets.filter(b=>b.res&&b.res!=='void');const pr=st.reduce((a,b)=>a+(b.res==='won'?b.stake*(b.odds-1):b.res==='half-won'?b.stake*(b.odds-1)/2:b.res==='half-lost'?-b.stake/2:-b.stake),0);
  if(bets.length)h+=`<div class="card" data-go="mybets" style="cursor:pointer"><h2>My bets</h2><div class="kpi"><div class="mk"><span>Open</span><b>${open.length}</b></div><div class="mk"><span>Profit</span><b class="${pr>=0?'pos':'neg'}">${(pr>=0?'+':'')+pr.toFixed(2)}</b></div></div></div>`;
  const big=D.fixtures.filter(f=>['E0','UCL','UEL','SP1','I1','D1','F1'].includes(f.lg)).slice(0,6);

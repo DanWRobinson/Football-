@@ -278,6 +278,96 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
         update_elo(echo=echo)
     except Exception as e:
         echo(f"  ClubElo: FAILED {e}")
+    try:
+        update_odds_api(leagues, echo=echo)
+    except Exception as e:
+        echo(f"  Odds API: FAILED {e}")
+
+
+SPREAD_COMPS = {"E0", "UCL"}          # Asian handicaps are only commonly offered here
+RESERVE = 10                          # never spend the last few credits
+REFETCH_HOURS = 8
+
+
+def odds_api_plan(con, leagues: list[str], remaining: int, now: dt.datetime | None = None) -> list[tuple]:
+    """Which competitions to fetch this run: (league, sport, markets, cost), soonest games first,
+    within this run's share of the month's remaining credits (3 runs a day)."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    cfg = config.leagues()
+    days_left = max(1, (dt.date(now.year + (now.month == 12), now.month % 12 + 1, 1) - now.date()).days)
+    budget = max(0, (remaining - RESERVE)) // (days_left * 3)
+    budget = max(budget, 3) if remaining - RESERVE >= 3 else 0
+    last = {r[0]: r[1] for r in con.execute("SELECT sport, MAX(at) FROM odds_api_log GROUP BY sport")}
+    soon = {r[0]: r[1] for r in con.execute(
+        "SELECT league, MIN(date) FROM matches WHERE status='fixture' AND date BETWEEN ? AND ? GROUP BY league",
+        (now.date().isoformat(), (now.date() + dt.timedelta(days=2)).isoformat()))}
+    # your team's next competition first, then the big competitions, then soonest games
+    fav_lg = set()
+    try:
+        from .my import favourite
+        fav = favourite()
+        if fav:
+            fav_lg = {r[0] for r in con.execute(
+                "SELECT league FROM matches WHERE status='fixture' AND (home=? OR away=?) AND date BETWEEN ? AND ?",
+                (fav, fav, now.date().isoformat(), (now.date() + dt.timedelta(days=2)).isoformat()))}
+    except Exception:  # noqa: BLE001
+        pass
+    big = ["UCL", "E0", "UEL", "SP1", "I1", "D1", "F1", "E1", "UECL", "N1", "P1", "B1", "SC0", "E2"]
+    rank = lambda l: (l not in fav_lg, soon[l], big.index(l) if l in big else 99)  # noqa: E731
+    plan, spent = [], 0
+    for lg in sorted((l for l in leagues if l in soon and cfg.get(l) and cfg[l].odds_api), key=rank):
+        sport = cfg[lg].odds_api
+        if sport in last and (now - dt.datetime.fromisoformat(last[sport])).total_seconds() < REFETCH_HOURS * 3600:
+            continue
+        markets = "h2h,totals,spreads" if lg in SPREAD_COMPS else "h2h,totals"
+        cost = markets.count(",") + 1
+        if spent + cost > budget:
+            continue
+        plan.append((lg, sport, markets, cost))
+        spent += cost
+    return plan
+
+
+def store_odds_api(con, lg: str, events: list[dict]) -> int:
+    season = config.current_season()
+    known = _known_teams(con, lg, season)
+    if config.league(lg).is_europe:
+        known = list(dict.fromkeys(known + _domestic_teams(con, [season - 1, season])))
+    n = 0
+    for e in events:
+        hk, ak = _resolve(e["home"], known), _resolve(e["away"], known)
+        mid = _find_match(con, lg, season, hk, ak, e["date"], window=1)
+        if not mid or not e["rows"]:
+            continue
+        con.execute("DELETE FROM odds WHERE match_id=? AND book LIKE 'oa:%'", (mid,))
+        db.put_odds(con, mid, e["rows"])
+        n += 1
+    return n
+
+
+def update_odds_api(leagues: list[str], echo=print) -> None:
+    from .sources import odds_api
+    api_key = odds_api.key()
+    if not api_key:
+        echo("  Odds API: skipped (set ODDS_API_KEY to enable)")
+        return
+    with db.session() as con:
+        row = con.execute("SELECT remaining FROM odds_api_log WHERE remaining IS NOT NULL ORDER BY at DESC LIMIT 1").fetchone()
+        remaining = row[0] if row else 500
+        plan = odds_api_plan(con, leagues, remaining)
+        if not plan:
+            echo(f"  Odds API: nothing due this run ({remaining} credits left this month)")
+            return
+        for lg, sport, markets, cost in plan:
+            try:
+                events, rem = odds_api.fetch(sport, markets, api_key)
+            except Exception as e:
+                echo(f"  [{lg}] Odds API: FAILED {e}")
+                break
+            n = store_odds_api(con, lg, odds_api.parse(events))
+            con.execute("INSERT INTO odds_api_log VALUES(?,?,?,?)", (sport, db.now_iso(), cost, rem))
+            con.commit()
+            echo(f"  [{lg}] Odds API: {len(events)} events, {n} matched to fixtures ({rem} credits left)")
 
 
 def update_elo(echo=print, date: dt.date | None = None) -> None:

@@ -122,6 +122,10 @@ CREATE TABLE IF NOT EXISTS availability (
     PRIMARY KEY (league, team, player, source)
 );
 
+CREATE TABLE IF NOT EXISTS odds_api_log (
+    sport TEXT, at TEXT, credits INTEGER, remaining INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS team_ext (
     source TEXT, team TEXT, ext_id TEXT, PRIMARY KEY (source, team)
 );

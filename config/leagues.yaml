@@ -8,6 +8,7 @@
 leagues:
   # ---------------- England ----------------
   - key: E0
+    odds_api: soccer_epl
     name: Premier League
     country: England
     tier: 1
@@ -17,6 +18,7 @@ leagues:
     fpl: true
     xg_sources: [understat, fotmob, api_football]
   - key: E1
+    odds_api: soccer_efl_champ
     name: Championship
     country: England
     tier: 2
@@ -24,6 +26,7 @@ leagues:
     api_football: 40
     xg_sources: [fotmob, api_football]
   - key: E2
+    odds_api: soccer_england_league1
     name: League One
     country: England
     tier: 3
@@ -47,6 +50,7 @@ leagues:
 
   # ---------------- Big 5 (ex-England) ----------------
   - key: SP1
+    odds_api: soccer_spain_la_liga
     name: La Liga
     country: Spain
     tier: 1
@@ -55,6 +59,7 @@ leagues:
     api_football: 140
     xg_sources: [understat, fotmob, api_football]
   - key: I1
+    odds_api: soccer_italy_serie_a
     name: Serie A
     country: Italy
     tier: 1
@@ -63,6 +68,7 @@ leagues:
     api_football: 135
     xg_sources: [understat, fotmob, api_football]
   - key: D1
+    odds_api: soccer_germany_bundesliga
     name: Bundesliga
     country: Germany
     tier: 1
@@ -71,6 +77,7 @@ leagues:
     api_football: 78
     xg_sources: [understat, fotmob, api_football]
   - key: F1
+    odds_api: soccer_france_ligue_one
     name: Ligue 1
     country: France
     tier: 1
@@ -81,6 +88,7 @@ leagues:
 
   # ---------------- Next tier ----------------
   - key: N1
+    odds_api: soccer_netherlands_eredivisie
     name: Eredivisie
     country: Netherlands
     tier: 1
@@ -88,6 +96,7 @@ leagues:
     api_football: 88
     xg_sources: [fotmob, api_football]
   - key: P1
+    odds_api: soccer_portugal_primeira_liga
     name: Primeira Liga
     country: Portugal
     tier: 1
@@ -95,6 +104,7 @@ leagues:
     api_football: 94
     xg_sources: [fotmob, api_football]
   - key: B1
+    odds_api: soccer_belgium_first_div
     name: Belgian Pro League
     country: Belgium
     tier: 1
@@ -102,6 +112,7 @@ leagues:
     api_football: 144
     xg_sources: [fotmob, api_football]
   - key: SC0
+    odds_api: soccer_spl
     name: Scottish Premiership
     country: Scotland
     tier: 1
@@ -114,6 +125,7 @@ leagues:
   # big chances. Team strength comes from each club's domestic ratings + a league-strength
   # offset calibrated on European results, or ClubElo for clubs outside the 13 leagues.
   - key: UCL
+    odds_api: soccer_uefa_champs_league
     name: Champions League
     country: Europe
     tier: 0
@@ -122,6 +134,7 @@ leagues:
     api_football: 2
     xg_sources: [fotmob, api_football]
   - key: UEL
+    odds_api: soccer_uefa_europa_league
     name: Europa League
     country: Europe
     tier: 0
@@ -130,6 +143,7 @@ leagues:
     api_football: 3
     xg_sources: [fotmob, api_football]
   - key: UECL
+    odds_api: soccer_uefa_europa_conference_league
     name: Conference League
     country: Europe
     tier: 0

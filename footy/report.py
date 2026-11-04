@@ -421,8 +421,9 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                 "xh": r.xg_home, "xa": r.xg_away, "nh": r.get("news_home") or "", "na": r.get("news_away") or "",
                 "ko": r.kickoff if isinstance(r.kickoff, str) else None,
                 "ch": r.get("corners_h"), "ca": r.get("corners_a"),
-                "b365": {k: r.get(f"b365_{k}") for k in ("H", "D", "A", "O2.5", "U2.5")
-                         if pd.notna(r.get(f"b365_{k}"))}})
+                "b365": {k: e["b365"] for k, e in (r.get("px") or {}).items() if e.get("b365")},
+                "px": {k: [round(e["best"], 2), e.get("best_book")] for k, e in (r.get("px") or {}).items()
+                       if e.get("best")}})
             data["names"][r.home], data["names"][r.away] = r.home_name, r.away_name
         for book in ("b365", "best"):
             vb = predict.value_bets(pred, -1.0, max_price=100, book=book)
@@ -430,12 +431,13 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                 data["value"].append({
                     "id": v.match_id, "mkkey": v.sel_key, "book": book, "lg": v.league,
                     "day": pd.Timestamp(v.date).strftime("%a %d %b"), "match": v.match,
-                    "sel": v.selection if v.market == "1X2" else v.market, "market": v.market,
+                    "sel": v.selection, "market": "1X2" if v.market == "1X2" else
+                    "Handicap" if v.market == "Handicap" else "Over/Under", "bk": v.get("bookmaker"),
                     "p": v.model_p, "mp": v.market_p, "price": v.price, "edge": v.edge, "stake": v.stake_pct,
                     "pb": _pool(v.model_p, v.market_p), "news": v.team_news})
 
     # ------------------------------------------------------------------ Value
-    mk_opts = "".join(f'<option value="{m}">{m}</option>' for m in ("1X2", "Over 2.5", "Under 2.5"))
+    mk_opts = "".join(f'<option value="{m}">{m}</option>' for m in ("1X2", "Over/Under", "Handicap"))
     lgo = "".join(f'<option value="{k}">{html.escape(n)}</option>' for k, n in lg_opts(pred.league if not pred.empty else []))
     has_prices = bool(data["value"])
     fair = pred.copy() if not pred.empty else pred
