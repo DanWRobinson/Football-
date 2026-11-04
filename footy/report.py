@@ -428,7 +428,15 @@ def fpl_extras_html(con, rt, nm, mine) -> str:
     if riv:
         parts.append("<h2>Mini-leagues</h2>")
         for lg in riv:
-            t = lg["table"].head(15).copy()
+            full = lg["table"].sort_values("rank")
+            top = full.head(5)
+            mine_i = full.index[full.entry == entry_id]
+            if len(mine_i):   # leaders + the rivals around you
+                pos = full.index.get_loc(mine_i[0])
+                near = full.iloc[max(0, pos - 4): pos + 5]
+                t = pd.concat([top, near]).drop_duplicates("entry").sort_values("rank").copy()
+            else:
+                t = full.head(15).copy()
             t["you"] = ["← you" if e == entry_id else "" for e in t.entry]
             parts.append(f"<details><summary>{html.escape(lg['name'] or 'League')}</summary>" + table(
                 t, [("rank", "#", "int"), ("entry_name", "Team", "text"), ("player_name", "Manager", "text"),

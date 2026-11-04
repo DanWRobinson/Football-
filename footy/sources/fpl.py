@@ -94,6 +94,17 @@ def fetch_entry_bundle(entry: int, gw: int | None, max_leagues: int = 3, rivals_
         except Exception:
             continue
         results = (st.get("standings") or {}).get("results") or []
+        rank = lg.get("entry_rank") or 0
+        if rank > len(results) and rank > 50:   # you're further down: fetch your page too (50 per page)
+            try:
+                page = (rank - 1) // 50 + 1
+                more = get(f"{BASE}/leagues-classic/{lg['id']}/standings/", params={"page_standings": page},
+                           as_json=True, ttl=3 * 3600)
+                seen = {r.get("entry") for r in results}
+                results = results + [r for r in (more.get("standings") or {}).get("results") or []
+                                     if r.get("entry") not in seen]
+            except Exception:
+                pass
         me = next((i for i, r in enumerate(results) if r.get("entry") == entry), None)
         lo = max(0, (me or 0) - rivals_per_league // 2)
         near = [r for r in results[lo:lo + rivals_per_league + 1] if r.get("entry") != entry]
@@ -104,5 +115,6 @@ def fetch_entry_bundle(entry: int, gw: int | None, max_leagues: int = 3, rivals_
                     picks[str(r["entry"])] = get(f"{BASE}/entry/{r['entry']}/event/{gw}/picks/", as_json=True, ttl=3 * 3600)
                 except Exception:
                     continue
-        out["leagues"].append({"id": lg["id"], "name": lg.get("name"), "results": results[:50], "picks": picks})
+        out["leagues"].append({"id": lg["id"], "name": lg.get("name"), "results": results, "picks": picks,
+                               "entry_rank": rank, "size": lg.get("rank_count")})
     return out
