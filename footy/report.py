@@ -296,7 +296,7 @@ def my_squad_html(m: dict) -> str:
              '<div class="grid">', card(f"Your XI ({nxt})", f"{m['now_pts']:.1f}", "expected pts, your captain"),
              card("Best XI", f"{m['best_pts']:.1f}", f"{diff:+.1f} pts" if diff > 0.05 else "you're already optimal"),
              card("Captain", html.escape(cap_name), f"vice {html.escape(vc_name)}"),
-             card("Bank", f"£{m['bank']:.1f}m", "set in config/my.yaml"), '</div>']
+             card("Bank", f"£{m['bank']:.1f}m", "from FPL" if m.get("synced") else "set in config/my.yaml"), '</div>']
     if diff > 0.05 and changes:
         html_.append(f'<p class="note">Suggested line-up changes: {html.escape(", ".join(changes))} '
                      "(★ = recommended starter).</p>")

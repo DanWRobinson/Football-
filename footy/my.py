@@ -91,7 +91,9 @@ def _from_entry(con, entry: int) -> tuple[pd.DataFrame, float]:
     rows = [dict(id=p["element"], captain=p.get("is_captain", False), vice=p.get("is_vice_captain", False),
                  bench=max(p["position"] - 11, 0), order=p["position"]) for p in data["picks"]]
     bank = (data.get("entry_history") or {}).get("bank", 0) / 10
-    return pd.DataFrame(rows), bank
+    df = pd.DataFrame(rows)
+    df.attrs["source"] = "fpl"
+    return df, bank
 
 
 def best_xi(sq: pd.DataFrame, col: str = "xPts_next") -> set[int]:
@@ -173,5 +175,5 @@ def analyse(con, xp: pd.DataFrame, horizon: int = 5) -> dict | None:
     moves = best_moves(sq, xp, bank, gw_cols)
     if not moves.empty:  # one suggestion per incoming player, so the list isn't five versions of the same move
         moves = moves.drop_duplicates("inn")
-    return dict(squad=sq, captain=cap, vice=vc, current_captain=cur_cap, now_pts=now_pts, best_pts=best_pts,
+    return dict(synced=sq_ids.attrs.get("source") == "fpl", squad=sq, captain=cap, vice=vc, current_captain=cur_cap, now_pts=now_pts, best_pts=best_pts,
                 moves=moves, bank=bank, horizon=horizon)
