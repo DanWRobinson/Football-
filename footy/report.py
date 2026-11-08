@@ -781,7 +781,15 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
     sections["Props"] = mobile.PROPS_HTML
     sections["My bets"] = ui.MYBETS_HTML
     bt_season = cur - 1
-    sections["Backtest"] = mobile.backtest_section(mobile.backtest_rows(con, frame, order, bt_season), bt_season)
+    # live track record: log this run's predictions + flagged bets, then score everything already played
+    from . import track
+    try:
+        track.log_run(con, pred, data["value"])
+        live = track.section(con)
+    except Exception as e:  # noqa: BLE001 - never lose the page over the track record
+        live = f'<p class="note">Track record unavailable this run ({html.escape(str(e))[:120]}).</p>'
+    sections["Backtest"] = live + "<h2>Backtest (replayed seasons)</h2>" + \
+        mobile.backtest_section(mobile.backtest_rows(con, frame, order, bt_season), bt_season)
     icons = mobile.write_icon(out.parent)
 
     # extra data for the app screens
