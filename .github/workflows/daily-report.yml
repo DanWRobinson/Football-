@@ -55,11 +55,6 @@ jobs:
           fi
         continue-on-error: true
 
-      - uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: data
-          key: footy-data-${{ github.run_id }}
 
       # latest LFC ticket state from the "LFC ticket alerts" workflow (tab + calendar feed)
       - uses: actions/cache/restore@v4
@@ -74,6 +69,13 @@ jobs:
           python -m footy report --out site/index.html
           mkdir -p site/download && cp data/footy.db site/download/footy.db || true
           python -m footy tickets ics --out site/lfc-tickets.ics || true
+
+      # save the data store AFTER the report: building it logs the track-record snapshots
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data
+          key: footy-data-${{ github.run_id }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
