@@ -274,10 +274,12 @@ def update(leagues: list[str], seasons: list[int], sources: list[str] | None = N
         if n:
             echo(f"  merged/re-keyed {n} matches after team-name fixes")
         cleanup(con)
-    try:
-        update_elo(echo=echo)
-    except Exception as e:
-        echo(f"  ClubElo: FAILED {e}")
+    import os
+    if os.environ.get("FOOTY_CLUBELO"):   # off by default: ClubElo refuses GitHub's servers; our own Elo is used
+        try:
+            update_elo(echo=echo)
+        except Exception as e:
+            echo(f"  ClubElo: FAILED {e}")
     try:
         update_odds_api(leagues, echo=echo)
     except Exception as e:
@@ -337,6 +339,15 @@ def store_odds_api(con, lg: str, events: list[dict]) -> int:
     for e in events:
         hk, ak = _resolve(e["home"], known), _resolve(e["away"], known)
         mid = _find_match(con, lg, season, hk, ak, e["date"], window=1)
+        if not mid:   # one side spelled differently (e.g. 'N.E.C.'): use the other side's only game that day
+            d = dt.date.fromisoformat(e["date"])
+            rows = con.execute(
+                "SELECT match_id FROM matches WHERE league=? AND season=? AND date BETWEEN ? AND ? AND (home=? OR away=?)",
+                (lg, season, (d - dt.timedelta(days=1)).isoformat(), (d + dt.timedelta(days=1)).isoformat(),
+                 hk, ak)).fetchall()
+            rows = [r for r in rows if r[0].split("|")[2] == hk or r[0].split("|")[3] == ak]
+            if len(rows) == 1:
+                mid = rows[0][0]
         if not mid or not e["rows"]:
             continue
         con.execute("DELETE FROM odds WHERE match_id=? AND book LIKE 'oa:%'", (mid,))

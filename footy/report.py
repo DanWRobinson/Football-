@@ -556,6 +556,12 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
                     "p": v.model_p, "mp": v.market_p, "price": v.price, "edge": v.edge, "stake": v.stake_pct,
                     "pb": _pool(v.model_p, v.market_p), "news": v.team_news})
 
+    from . import track as _track
+    try:
+        data["moves"] = _track.movements(con, pred)
+    except Exception:  # noqa: BLE001 - movement is a nice-to-have
+        data["moves"] = {}
+
     # ------------------------------------------------------------------ Value
     mk_opts = "".join(f'<option value="{m}">{m}</option>' for m in ("1X2", "Over/Under", "Handicap"))
     lgo = "".join(f'<option value="{k}">{html.escape(n)}</option>' for k, n in lg_opts(pred.league if not pred.empty else []))
@@ -583,6 +589,10 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
         '<label>Max odds<input id="vMax" type="number" value="8" step="0.5"></label>'
         '<label>Search<input id="vQ" type="search" placeholder="Team"></label>'
         '<span class="sub" id="vCount"></span></div><div id="vbox"></div>'
+        '<details id="mvBox"><summary>Price movers</summary><p class="note">How the market\'s fair probability has '
+        "moved since we first saw each price (Pinnacle / exchanges, margin removed). <b>Shortening</b> = money has come "
+        "for it; <b>drifting</b> = money against. A pick drifting away from you is worth a second look.</p>"
+        '<div id="mvOut"></div></details>'
         + ("" if has_prices else "<h2>Model fair odds - compare with Bet365</h2>"
            '<p class="note">If Bet365 offers <b>more</b> than the fair odds, the model sees value.</p>'
            + fbar(lg_opts(fair.league if not fair.empty else []), placeholder="Search team")

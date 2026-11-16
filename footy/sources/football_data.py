@@ -71,6 +71,7 @@ def parse_csv(text: str, lg: League, season: int | None, division: str | None = 
     df = df.dropna(subset=["HomeTeam", "AwayTeam"]) if "HomeTeam" in df else df.iloc[0:0]
     if df.empty:
         return []
+    df = df.copy()   # de-fragment wide CSVs before adding a column (silences pandas warnings)
     df["_date"] = _parse_date(df["Date"])
     out = []
     for _, r in df.iterrows():

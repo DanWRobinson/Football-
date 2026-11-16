@@ -194,3 +194,41 @@ def section(con) -> str:
             ("price", "Price", "f2"), ("bookmaker", "Where", "text"), ("adj_edge", "Edge", "signed_pct"),
             ("score", "Score", "text"), ("result", "Result", "text"), ("pnl", "P/L", "signed")]) + "</details>")
     return "".join(h)
+
+
+# ------------------------------------------------------------------ price movement
+
+MOVE_MIN = 0.02      # a 2-point move in the market's fair probability counts as a real move
+
+
+def movements(con, pred: pd.DataFrame) -> dict:
+    """match_id -> {sel_key: [market p first seen, market p now, best price first, best price now, hours]}
+
+    Uses the snapshots logged by earlier runs (value_log, best price) and this run's prices. The market
+    probability is margin-free from the sharpest source (Pinnacle / exchanges), so a rise means money
+    has come for that selection ('shortening'); a fall means it's 'drifting'.
+    """
+    con.executescript(SCHEMA)
+    if pred is None or pred.empty or "px" not in pred:
+        return {}
+    ids = list(pred.match_id)
+    q = ",".join("?" * len(ids))
+    hist = db.read_sql(con, f"SELECT run_at, match_id, sel_key, price, mp FROM value_log WHERE book='best' "
+                            f"AND match_id IN ({q}) ORDER BY run_at", ids)
+    if hist.empty:
+        return {}
+    first = hist.dropna(subset=["mp"]).groupby(["match_id", "sel_key"]).first()
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    out: dict[str, dict] = {}
+    for _, r in pred.iterrows():
+        for key, e in (r.px or {}).items():
+            if (r.match_id, key) not in first.index or e.get("mp") is None or pd.isna(e.get("mp")):
+                continue
+            f = first.loc[(r.match_id, key)]
+            hours = (now - pd.Timestamp(f.run_at)).total_seconds() / 3600
+            if hours < 2:
+                continue
+            out.setdefault(r.match_id, {})[key] = [round(float(f.mp), 4), round(float(e["mp"]), 4),
+                                                   round(float(f.price), 2), round(float(e["best"]), 2) if e.get("best") else None,
+                                                   round(hours)]
+    return out

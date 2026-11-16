@@ -16,7 +16,7 @@ leagues:
     fotmob: 47
     api_football: 39
     fpl: true
-    xg_sources: [understat, fotmob, api_football]
+    xg_sources: [fotmob, api_football]   # understat blocks GitHub's servers
   - key: E1
     odds_api: soccer_efl_champ
     name: Championship
@@ -57,7 +57,7 @@ leagues:
     understat: La_liga
     fotmob: 87
     api_football: 140
-    xg_sources: [understat, fotmob, api_football]
+    xg_sources: [fotmob, api_football]   # understat blocks GitHub's servers
   - key: I1
     odds_api: soccer_italy_serie_a
     name: Serie A
@@ -66,7 +66,7 @@ leagues:
     understat: Serie_A
     fotmob: 55
     api_football: 135
-    xg_sources: [understat, fotmob, api_football]
+    xg_sources: [fotmob, api_football]   # understat blocks GitHub's servers
   - key: D1
     odds_api: soccer_germany_bundesliga
     name: Bundesliga
@@ -75,7 +75,7 @@ leagues:
     understat: Bundesliga
     fotmob: 54
     api_football: 78
-    xg_sources: [understat, fotmob, api_football]
+    xg_sources: [fotmob, api_football]   # understat blocks GitHub's servers
   - key: F1
     odds_api: soccer_france_ligue_one
     name: Ligue 1
@@ -84,7 +84,7 @@ leagues:
     understat: Ligue_1
     fotmob: 53
     api_football: 61
-    xg_sources: [understat, fotmob, api_football]
+    xg_sources: [fotmob, api_football]   # understat blocks GitHub's servers
 
   # ---------------- Next tier ----------------
   - key: N1

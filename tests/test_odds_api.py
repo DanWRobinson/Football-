@@ -55,3 +55,13 @@ def test_budget_plan(tmp_path):
     plan = pipeline.odds_api_plan(con, ["E0", "SP1", "E3"], remaining=490)
     assert [p[0] for p in plan][:1] == ["E0"] and all(p[0] != "E3" for p in plan)   # League Two isn't covered
     assert pipeline.odds_api_plan(con, ["E0"], remaining=11) == []                    # keep the reserve
+
+
+def test_odds_match_when_one_name_differs(tmp_path):
+    con = db.connect(tmp_path / "t.db")
+    day = dt.date.today().isoformat()
+    db.upsert_match(con, league="UEL", season=pipeline.config.current_season(), date=day,
+                    home="NEC Nijmegen", away="Omonia Nicosia")
+    events = [{"home": "N.E.C.", "away": "Omonia Nicosia FC", "date": day, "kickoff": "20:00",
+               "rows": [("1X2", "H", "oa:skybet", 2.1, None)]}]
+    assert pipeline.store_odds_api(con, "UEL", events) == 1

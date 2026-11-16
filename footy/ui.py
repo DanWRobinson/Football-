@@ -174,6 +174,8 @@ MYBETS_HTML = """
 <p class="note">Bets you track settle automatically from results. <b>CLV</b> (closing-line value) compares your
 odds with the margin-free closing price: consistently beating the close is the best early sign of a real edge,
 long before profit tells you anything. Stored on this device - export to move phones.</p>
+<div class="fbar"><label>Bankroll £ (this device)<input id="bkroll" type="number" step="10" min="0" placeholder="e.g. 200"></label>
+<span class="sub">Used to show stakes in £ (quarter-Kelly, max 5% per bet).</span></div>
 <div class="kpi" id="btSum"></div><div id="btList"></div>
 <div class="fbar"><button class="b ghost" id="btExport">Export</button><button class="b ghost" id="btImport">Import</button>
 <button class="b ghost" id="btClear">Clear settled</button></div>
@@ -188,6 +190,12 @@ const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.par
  set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 function nm(k){return D.names[k]||k}
 const pc=x=>x==null||isNaN(x)?'-':(100*x).toFixed(x<0.1&&x>0?1:0)+'%', fo=x=>x>0?(1/x).toFixed(2):'-';
+function mvOf(id,k){const m=((D.moves||{})[id]||{})[k];if(!m)return null;return{dp:m[1]-m[0],from:m[0],to:m[1],p0:m[2],p1:m[3],h:m[4]}}
+function mvTag(id,k,short){const m=mvOf(id,k);if(!m||Math.abs(m.dp)<0.02)return'';const up=m.dp>0;
+ const when=m.h>=48?Math.round(m.h/24)+'d':m.h+'h';
+ return`<span class="${up?'pos':'neg'}">${up?'↓ shortening':'↑ drifting'}</span>`+(short?'':` <span class="sub">${m.p0?m.p0.toFixed(2):''}${m.p1?'→'+m.p1.toFixed(2):''} · market ${pc(m.from)}→${pc(m.to)} · ${when}</span>`)}
+function bankroll(){const b=parseFloat(LS.get('bankroll',0));return b>0?b:0}
+function gbp(frac){const b=bankroll();return b&&frac>0?` · £${(frac*b).toFixed(2)}`:''}
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 /* ---------- navigation */
@@ -336,7 +344,7 @@ function render(){const[f,c]=curCtx();CUR=f;MK=marketList(c);const g=k=>MK.find(
 function canBuild(m){return !(m.g==='Handicap'&&!m.f)}
 function drawList(){const slip=LS.get('slip',[]),fid=CUR?CUR.id:'';$$('#mdGroups .chip').forEach(b=>b.classList.toggle('on',b.dataset.grp===GRP));
  const PX=(CUR&&CUR.px)||{};
- let h=MK.filter(m=>m.g===GRP).map(m=>{const x=PX[m.k],e=x?m.p*x[0]-1:null;return`<div class="mrow"><span class="l">${esc(m.l)}${x?`<br><span class="sub">best ${x[0].toFixed(2)} ${esc(x[1]||'')} · <span class="${e>0?'pos':'neg'}">${(e>0?'+':'')+(100*e).toFixed(0)}%</span></span>`:''}</span><span class="p">${pc(m.p)}</span><span class="o">${fo(m.p)}</span>
+ let h=MK.filter(m=>m.g===GRP).map(m=>{const x=PX[m.k],e=x?m.p*x[0]-1:null;return`<div class="mrow"><span class="l">${esc(m.l)}${x?`<br><span class="sub">best ${x[0].toFixed(2)} ${esc(x[1]||'')} · <span class="${e>0?'pos':'neg'}">${(e>0?'+':'')+(100*e).toFixed(0)}%</span></span>`:''}${fid&&mvTag(fid,m.k)?'<br>'+mvTag(fid,m.k):''}</span><span class="p">${pc(m.p)}</span><span class="o">${fo(m.p)}</span>
   ${fid?(canBuild(m)?`<button class="add ${slip.some(s=>s.id===fid&&s.mk===m.k)?'in':''}" data-add="${m.k}" data-fid="${fid}" aria-label="add to builder">+</button>`:'<span style="width:34px"></span>'):''}</div>`}).join('');
  if(GRP==='Scores'){const M=MK.M;let g='<div class="tw"><table class="sg"><thead><tr><th></th>'+[0,1,2,3,4,5].map(j=>`<th>${j}</th>`).join('')+'</tr></thead><tbody>';
   for(let i=0;i<=5;i++){g+=`<tr><th>${i}</th>`;for(let j=0;j<=5;j++)g+=`<td>${(100*M[i][j]).toFixed(1)}</td>`;g+='</tr>'}h=g+'</tbody></table></div><p class="note">Rows = home goals, columns = away goals (%).</p>'+h}
@@ -348,7 +356,8 @@ $('#mdGroups')&&$('#mdGroups').addEventListener('click',e=>{const b=e.target.clo
 function price(){const m=MK.find(x=>x.k===mx.M.value);const o=parseFloat(mx.P.value);const out=$('#mxEdge');
  if(!m){out.textContent='';return}if(!(o>1)){out.innerHTML=`Model ${pc(m.p)} · fair odds <b>${fo(m.p)}</b> - type the bookmaker's price`;return}
  const e=m.p*o-1,k=Math.min(Math.max((m.p*o-1)/(o-1),0)*0.25,0.05);
- out.innerHTML=`Model ${pc(m.p)} · fair ${fo(m.p)} · edge <span class="${e>0?'pos':'neg'} big">${(e>0?'+':'')+(100*e).toFixed(1)}%</span><br>`+(e>0?`quarter-Kelly stake <b>${(100*k).toFixed(1)}%</b> of bankroll`:'no bet at this price')}
+ out.innerHTML=`Model ${pc(m.p)} · fair ${fo(m.p)} · edge <span class="${e>0?'pos':'neg'} big">${(e>0?'+':'')+(100*e).toFixed(1)}%</span><br>`+(e>0?`quarter-Kelly stake <b>${(100*k).toFixed(1)}%</b> of bankroll${gbp(k)}`:'no bet at this price');
+ if(e>0&&bankroll()&&!mx.stakeTouched)$('#mxStake').value=(k*bankroll()).toFixed(2)}
 if(mx.L){mx.L.innerHTML=Object.keys(D.ratings).map(k=>`<option value="${k}">${esc(D.lgnames[k]||k)}</option>`).join('');
  mx.L.onchange=()=>{fillFixtures();fillTeams(mx.L.value);setXG()};mx.F.onchange=()=>mx.F.value?openFixture(mx.F.value):setXG();
  mx.H.onchange=setXG;mx.A.onchange=setXG;mx.XH.oninput=render;mx.XA.oninput=render;mx.M.onchange=price;mx.P.oninput=price;
@@ -364,7 +373,7 @@ function renderValue(){const box=$('#vbox');if(!box)return;const adj=($('#vMode'
  $('#vCount').textContent=rows.length+' selection'+(rows.length==1?'':'s');
  box.innerHTML=rows.length?rows.map(v=>`<div class="fx" data-fx="${v.id}" data-mk="${v.mkkey}" data-pr="${v.price}"><div class="meta"><span>${esc(D.lgnames[v.lg]||v.lg)} · ${esc(v.day)}</span><span class="${E(v)>0?'pos':'neg'}">${(E(v)>0?'+':'')+(100*E(v)).toFixed(1)}% edge</span></div>
   <div class="tm"><span class="nm">${esc(v.sel)} <span class="sub">· ${esc(v.match)}</span></span><span class="p">${v.price.toFixed(2)}<br><span class="sub">${esc(v.bk||'')}</span></span></div>
-  <div class="foot"><span>Model <b>${pc(P(v))}</b></span><span>Market <b>${v.mp!=null?pc(v.mp):'-'}</b></span><span>Fair <b>${fo(P(v))}</b></span><span>Stake <b>${(100*S(v)).toFixed(1)}%</b></span>${v.news?`<span>🩹 ${esc(v.news)}</span>`:''}</div></div>`).join('')
+  <div class="foot"><span>Model <b>${pc(P(v))}</b></span><span>Market <b>${v.mp!=null?pc(v.mp):'-'}</b></span><span>Fair <b>${fo(P(v))}</b></span><span>Stake <b>${(100*S(v)).toFixed(1)}%${gbp(S(v))}</b></span>${mvTag(v.id,v.mkkey)?`<span>${mvTag(v.id,v.mkkey,true)}</span>`:''}${v.news?`<span>🩹 ${esc(v.news)}</span>`:''}</div></div>`).join('')
   :(()=>{const other=bk==='b365'?D.value.filter(v=>v.book==='best'&&E(v)>=me&&v.price<=mx_&&(!mk||v.market===mk)&&(!lg||v.lg===lg)).length:0;
     return `<p class="note">${!D.value.length?'No bookmaker prices for the coming fixtures yet. Use the fair odds below and type a price into a match.':
      other?`Nothing clears ${Math.round(me*100)}% at Bet365, but <b>${other}</b> selection${other==1?' does':'s do'} at other UK bookmakers.`:'No selections match these filters - lower the minimum edge.'}</p>`+
@@ -391,7 +400,9 @@ function drawSlip(){const box=$('#blOut');if(!box)return;const legs=LS.get('slip
  h+=`<div class="card"><h2>Combined</h2><div class="kpi"><div class="mk"><span>Probability</span><b>${pc(r.p)}</b></div><div class="mk"><span>Fair odds</span><b>${fo(r.p)}</b></div></div>
   <div class="form"><label>Bookmaker odds<input id="blOdds" type="number" step="0.01" placeholder="e.g. 6.50"></label><label>Stake<input id="blStake" type="number" value="5"></label></div>
   <p id="blEdge"></p><div class="fbar"><button class="b" id="blTrack">Track this bet</button><button class="b ghost" id="blClear">Clear</button></div></div>`;
- box.innerHTML=h;const upd=()=>{const o=parseFloat($('#blOdds').value);const e=r.p*o-1;$('#blEdge').innerHTML=o>1?`Edge <span class="${e>0?'pos':'neg'} big">${(e>0?'+':'')+(100*e).toFixed(1)}%</span>`:''};
+ box.innerHTML=h;const upd=()=>{const o=parseFloat($('#blOdds').value);const e=r.p*o-1;const k=o>1?Math.min(Math.max((r.p*o-1)/(o-1),0)*0.25,0.05):0;
+  $('#blEdge').innerHTML=o>1?`Edge <span class="${e>0?'pos':'neg'} big">${(e>0?'+':'')+(100*e).toFixed(1)}%</span>`+(e>0?`<br>quarter-Kelly stake <b>${(100*k).toFixed(1)}%</b>${gbp(k)}`:''):'';
+  if(e>0&&bankroll())$('#blStake').value=(k*bankroll()).toFixed(2)};
  $('#blOdds').oninput=upd;$('#blClear').onclick=()=>{LS.set('slip',[]);drawSlip()};
  $('#blTrack').onclick=()=>{const o=parseFloat($('#blOdds').value);if(!(o>1)){$('#blEdge').textContent='Type the bookmaker odds first';return}
   const legsFull=[];for(const pt of r.parts)if(!pt.miss)for(const m of pt.sel)legsFull.push({id:pt.f.id,mk:m.k,label:m.l,match:nm(pt.f.h)+' v '+nm(pt.f.a),day:pt.f.day});
@@ -466,6 +477,15 @@ function drawToday(){const box=$('#tdOut');if(!box)return;let h='';const fav=D.f
  if(big.length)h+='<h2>Coming up</h2>'+big.map(fxCard).join('')+'<p><a class="go" href="#" data-go="matches">All matches ›</a></p>';
  h+=`<footer>Updated ${esc(D.stamp||'')} · probabilities, not certainties<br>Bet only what you can afford to lose · BeGambleAware.org · 0808 8020 133</footer>`;
  box.innerHTML=h}
+/* ---------- bankroll + price movers */
+(()=>{const b=$('#bkroll');if(b){if(bankroll())b.value=bankroll();b.oninput=()=>{LS.set('bankroll',parseFloat(b.value)||0);renderValue()}}
+ const st=$('#mxStake');if(st)st.addEventListener('input',()=>{mx.stakeTouched=true});
+ const box=$('#mvOut');if(!box)return;const lab=(f,k)=>({H:nm(f.h),D:'Draw',A:nm(f.a)}[k]||(k[0]=='O'&&!isNaN(k[1])?'Over '+k.slice(1):k[0]=='U'&&!isNaN(k[1])?'Under '+k.slice(1):k.startsWith('AHA')?nm(f.a)+' '+k.slice(3):k.startsWith('AH')?nm(f.h)+' '+k.slice(2):k));
+ const rows=[];for(const id in (D.moves||{})){const f=fxById(id);if(!f)continue;for(const k in D.moves[id]){const m=mvOf(id,k);if(m&&Math.abs(m.dp)>=0.02)rows.push({f,k,m})}}
+ rows.sort((a,b)=>Math.abs(b.m.dp)-Math.abs(a.m.dp));
+ box.innerHTML=rows.length?rows.slice(0,20).map(({f,k,m})=>`<div class="mrow" data-fx="${f.id}" data-mk="${k}" style="cursor:pointer"><span class="l">${esc(lab(f,k))}<br><span class="sub">${esc(nm(f.h))} v ${esc(nm(f.a))} · ${esc(f.day)}</span></span>
+  <span class="o" style="width:auto;text-align:right">${mvTag(f.id,k)}</span></div>`).join('')
+  :'<p class="note">No big moves yet - movement shows once prices have been seen on at least two runs.</p>'})();
 slipBadge();
 show(LS.get('tab','today'),false);if(!document.querySelector('section.on'))show('today',false);
 """

@@ -91,7 +91,7 @@ ALIASES: dict[str, str] = {
     # Netherlands / Portugal / Belgium / Scotland
     "psv eindhoven": "psv", "feyenoord rotterdam": "feyenoord", "az alkmaar": "az alkmaar", "az": "az alkmaar",
     "fc twente": "twente", "fc utrecht": "utrecht", "sc heerenveen": "heerenveen", "nec nijmegen": "nijmegen",
-    "nec": "nijmegen", "fc groningen": "groningen", "go ahead eagles": "go ahead eagles",
+    "nec": "nijmegen", "n e c": "nijmegen", "ac omonia": "omonia nicosia", "omonia": "omonia nicosia", "fc groningen": "groningen", "go ahead eagles": "go ahead eagles",
     "sporting cp": "sp lisbon", "sporting lisbon": "sp lisbon", "sporting": "sp lisbon",
     "sl benfica": "benfica", "fc porto": "porto", "sc braga": "sp braga", "braga": "sp braga",
     "vitoria guimaraes": "guimaraes", "vitoria sc": "guimaraes",
