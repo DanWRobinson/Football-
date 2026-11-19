@@ -124,7 +124,7 @@ def test_static_report(tmp_path, monkeypatch):
     page = out.read_text()
     for tab in ("Today", "Matches", "Bets", "FPL", "More"):
         assert f">{tab}</button>" in page
-    for sid in ("today", "matches", "mxsec", "value", "builder", "mybets", "fpl", "tables", "props", "backtest"):
+    for sid in ("today", "matches", "rankings", "mxsec", "value", "builder", "mybets", "fpl", "tables", "props", "backtest"):
         assert f'<section id="{sid}"' in page
     assert 'id="footy-data"' in page and 'data-f="q"' in page and "mxL" in page
     assert "Premier League" in page and "<table>" in page

@@ -813,9 +813,10 @@ def build(out: Path | str = "site/index.html", days: int = 7, min_edge: float = 
     sections["Match"] = ui.MATCH_HTML
     sections["Today"] = ui.TODAY_HTML
     sections["Matches"] = ui.MATCHES_HTML
+    sections["Rankings"] = ui.RANKINGS_HTML
     sections["Builder"] = ui.BUILDER_HTML
     ids = {"Today": "today", "Matches": "matches", "Fixtures": "fixtures", "Match": "mxsec", "Value": "value",
-           "Builder": "builder", "My bets": "mybets", "FPL": "fpl", "Team": "team", "Props": "props",
+           "Builder": "builder", "My bets": "mybets", "Rankings": "rankings", "FPL": "fpl", "Team": "team", "Props": "props",
            "Tables": "tables", "Regression": "regression", "Cards": "cards", "Players": "players",
            "Backtest": "backtest", "LFC tickets": "tickets", "Data": "data"}
     by_id = {ids[k]: v for k, v in sections.items() if k in ids}

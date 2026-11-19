@@ -15,6 +15,7 @@ SECTIONS = {
     "today": ("Today", "today"),
     "matches": ("Matches", "matches"),
     "fixtures": ("Table view", "matches"),
+    "rankings": ("Rankings", "matches"),
     "mxsec": ("Match", "matches"),
     "value": ("Value", "bets"),
     "builder": ("Builder", "bets"),
@@ -33,8 +34,8 @@ SECTIONS = {
 }
 TABS = [("today", "Today", "⌂"), ("matches", "Matches", "⚽"), ("bets", "Bets", "£"), ("fpl", "FPL", "★"),
         ("more", "More", "☰")]
-SEGMENTS = {"matches": ["matches", "fixtures", "mxsec"], "bets": ["value", "builder", "mybets"]}
-SEG_LABEL = {"matches": "Cards", "fixtures": "Table", "mxsec": "Calculator", "value": "Value",
+SEGMENTS = {"matches": ["matches", "rankings", "fixtures", "mxsec"], "bets": ["value", "builder", "mybets"]}
+SEG_LABEL = {"matches": "Cards", "rankings": "Rankings", "fixtures": "Table", "mxsec": "Calc", "value": "Value",
              "builder": "Builder", "mybets": "My bets"}
 MORE_ICONS = {"team": "📈", "props": "🎯", "tables": "📊", "regression": "🔄", "cards": "🟨", "players": "👟",
               "backtest": "🧪", "tickets": "🎟️", "data": "🗂️"}
@@ -143,6 +144,14 @@ def more_menu(present: list[str], blurbs: dict[str, str]) -> str:
 
 
 TODAY_HTML = '<div id="tdOut"></div>'
+RANKINGS_HTML = """
+<p class="note">The model's probabilities ranked across every fixture in the window you pick. Best price and
+edge show where live prices exist; ↓/↑ show how the market has moved. Tap a row to open the match.</p>
+<div class="form"><label>Ranking<select id="rkCat"></select></label><label>When<select id="rkWhen"></select></label></div>
+<div class="chips" id="rkLg" style="margin-top:8px"></div>
+<div class="card" id="rkOut"></div>
+"""
+
 MATCHES_HTML = ('<div class="chips" id="mlChips"></div>'
                 '<input type="search" id="mlQ" placeholder="Search team" style="width:100%;margin-bottom:4px">'
                 '<div id="mlOut"></div>')
@@ -316,6 +325,48 @@ function fxCard(f){const [h,d,a,o,b]=pHDA(f);const news=(f.nh||f.na)?' · <span 
   box.innerHTML=h||'<p class="note">No fixtures in the next week for this filter.</p>'}
  ch.addEventListener('click',e=>{const b=e.target.closest('[data-lg]');if(!b)return;cur=b.dataset.lg;LS.set('mlLg',cur);chips();draw()});
  $('#mlQ').addEventListener('input',draw);chips();draw()})();
+
+/* ---------- Rankings */
+(()=>{const out=$('#rkOut');if(!out)return;
+ const CATS=[['win','Most likely winners'],['upset','Upset chances (underdogs)'],['draw','Most likely draws'],
+  ['o25','Over 2.5 goals'],['u25','Under 2.5 goals'],['o35','Over 3.5 goals'],['btts','Both teams to score'],['bttsn','BTTS - No'],
+  ['cs','Clean sheets'],['wtn','Win to nil'],['goals','Most goals expected'],['corners','Corners over 9.5']];
+ $('#rkCat').innerHTML=CATS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('');
+ const days=[...new Set(D.fixtures.map(f=>f.day))];
+ const wkd=d=>/^(Fri|Sat|Sun|Mon)/.test(d);
+ $('#rkWhen').innerHTML='<option value="all">Next 7 days</option>'+(days.some(wkd)?'<option value="wkd">This weekend (Fri–Mon)</option>':'')+days.map(d=>`<option value="${d}">${d}</option>`).join('');
+ $('#rkCat').value=LS.get('rkCat','win');$('#rkWhen').value=LS.get('rkWhen','all');if(!$('#rkWhen').value)$('#rkWhen').value='all';
+ let lg=LS.get('rkLg','');const lgs=[...new Set(D.fixtures.map(f=>f.lg))];
+ const chips=()=>{$('#rkLg').innerHTML=['',...lgs].map(k=>`<button class="chip ${k===lg?'on':''}" data-rlg="${k}">${k?esc(D.lgnames[k]||k):'All'}</button>`).join('')};
+ const cache={};const mk=f=>cache[f.id]||(cache[f.id]=marketList(ctxFor(f)));
+ function rows(cat,fx){const R=[];
+  for(const f of fx){const m=mk(f),g=k=>(m.find(x=>x.k===k)||{}).p,H=nm(f.h),A=nm(f.a),sub=`${H} v ${A}`;
+   const add=(key,title,p,extra)=>{if(p!=null&&!isNaN(p))R.push({f,key,title,sub,p,...(extra||{})})};
+   if(cat==='win'||cat==='upset'){const ph=g('H'),pa=g('A');
+    if(cat==='win'){add('H',H+' to win',ph);add('A',A+' to win',pa)}
+    else{if(ph<pa)add('H',H+' to win',ph);else add('A',A+' to win',pa)}}
+   else if(cat==='draw')add('D','Draw',g('D'));
+   else if(cat==='o25')add('O2.5','Over 2.5',g('O2.5'));
+   else if(cat==='u25')add('U2.5','Under 2.5',g('U2.5'));
+   else if(cat==='o35')add('O3.5','Over 3.5',g('O3.5'));
+   else if(cat==='btts')add('BTTS','Both teams score',g('BTTS'));
+   else if(cat==='bttsn')add('BTTS_N','BTTS - No',g('BTTS_N'));
+   else if(cat==='cs'){add('H_CS',H+' clean sheet',g('H_CS'));add('A_CS',A+' clean sheet',g('A_CS'))}
+   else if(cat==='wtn'){add('H_WTN',H+' win to nil',g('H_WTN'));add('A_WTN',A+' win to nil',g('A_WTN'))}
+   else if(cat==='corners'){if(f.ch&&f.ca)add('C_O9.5','Corners over 9.5',g('C_O9.5'),{note:`exp. ${(f.ch+f.ca).toFixed(1)}`})}
+   else if(cat==='goals')add(null,`${(f.xh+f.xa).toFixed(2)} goals expected`,f.xh+f.xa,{val:true,note:`${f.xh.toFixed(1)}–${f.xa.toFixed(1)} · O2.5 ${pc(g('O2.5'))}`})}
+  return R.sort((a,b)=>b.p-a.p).slice(0,25)}
+ function draw(){const cat=$('#rkCat').value,w=$('#rkWhen').value;LS.set('rkCat',cat);LS.set('rkWhen',w);
+  const fx=D.fixtures.filter(f=>(!lg||f.lg===lg)&&(w==='all'||(w==='wkd'?wkd(f.day):f.day===w)));
+  const R=rows(cat,fx);
+  out.innerHTML=R.length?R.map((r,i)=>{const x=r.key?((r.f.px||{})[r.key]):null,e=x?r.p*x[0]-1:null,mv=r.key?mvTag(r.f.id,r.key,true):'';
+   return`<div class="mrow" data-fx="${r.f.id}"${r.key?` data-mk="${r.key}"`:''} style="cursor:pointer"><span style="width:22px;color:var(--muted);font-weight:700">${i+1}</span>
+   <span class="l"><b>${esc(r.title)}</b><br><span class="sub">${esc(r.sub)} · ${esc(r.f.day)} · ${esc(D.lgnames[r.f.lg]||r.f.lg)}${r.note?' · '+esc(r.note):''}</span>
+   ${x?`<br><span class="sub">best ${x[0].toFixed(2)} ${esc(x[1]||'')} · <span class="${e>0?'pos':'neg'}">${(e>0?'+':'')+(100*e).toFixed(0)}%</span></span>`:''}${mv?' '+mv:''}</span>
+   <span class="p">${r.val?r.p.toFixed(2):pc(r.p)}</span>${r.val?'':`<span class="o">${fo(r.p)}</span>`}</div>`}).join('')
+   :'<p class="note">No fixtures in this window.</p>'}
+ $('#rkLg').addEventListener('click',e=>{const b=e.target.closest('[data-rlg]');if(!b)return;lg=b.dataset.rlg;LS.set('rkLg',lg);chips();draw()});
+ $('#rkCat').onchange=draw;$('#rkWhen').onchange=draw;chips();draw()})();
 
 /* ---------- Match detail / calculator */
 const mx={L:$('#mxL'),F:$('#mxF'),H:$('#mxH'),A:$('#mxA'),XH:$('#mxXH'),XA:$('#mxXA'),M:$('#mxMk'),P:$('#mxP')};
